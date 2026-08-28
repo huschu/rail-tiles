@@ -27,7 +27,7 @@ jobs:
       tag: ${{ steps.stamp.outputs.tag }}
       build_id: ${{ steps.stamp.outputs.build_id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - id: list
         run: |
           if [ -n "${{ github.event.inputs.regions }}" ]; then
@@ -50,7 +50,7 @@ jobs:
       matrix:
         region: ${{ fromJson(needs.prepare.outputs.regions) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Free disk for large extracts
         run: |
@@ -82,7 +82,7 @@ jobs:
 
       - name: Cache region tileset
         id: tiles
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           # Keyed by extract content: if the country's data is byte-identical to
           # a prior build, restore the finished tileset and skip fetch + filter +
@@ -97,7 +97,7 @@ jobs:
       - name: Cache filtered extract
         id: extract
         if: steps.tiles.outputs.cache-hit != 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             work/${{ matrix.region }}-rail.osm.pbf
@@ -123,7 +123,7 @@ jobs:
         if: steps.tiles.outputs.cache-hit == 'true'
         run: echo "${{ matrix.region }} unchanged (md5 ${{ steps.hash.outputs.md5 }}); reused tileset, skipped rebuild"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: region-${{ matrix.region }}
           path: |
@@ -135,10 +135,10 @@ jobs:
     needs: [prepare, build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/tippecanoe
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: regions
           pattern: region-*
