@@ -175,7 +175,11 @@ jobs:
             --out manifest.json
           cat manifest.json
 
+      # Only a full build (no region override) publishes to the production tag
+      # and the stable manifest. A smoke run (regions input set) must never
+      # clobber the live archive — it uploads a workflow artifact instead.
       - name: Publish dated archive
+        if: github.event.inputs.regions == ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -186,6 +190,7 @@ jobs:
             || gh release upload "$TAG" "${{ steps.join.outputs.archive }}" --clobber
 
       - name: Publish manifest at the stable 'latest' tag
+        if: github.event.inputs.regions == ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -193,3 +198,13 @@ jobs:
             || gh release create latest --title "latest" \
                  --notes "Stable pointer. manifest.json names the current archive." --prerelease
           gh release upload latest manifest.json --clobber
+
+      - name: Upload smoke build as artifact (no publish)
+        if: github.event.inputs.regions != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: smoke-build
+          path: |
+            ${{ steps.join.outputs.archive }}
+            manifest.json
+          retention-days: 3
