@@ -64,7 +64,19 @@ jobs:
 
       - uses: ./.github/actions/tippecanoe
 
+      - name: Cache filtered extract
+        id: extract
+        uses: actions/cache@v4
+        with:
+          # Keyed by build date: same-day re-runs (fixing a later-stage bug)
+          # reuse the extract; the weekly build has a new date and refetches.
+          path: |
+            work/${{ matrix.region }}-rail.osm.pbf
+            work/${{ matrix.region }}.timestamp
+          key: extract-${{ matrix.region }}-${{ needs.prepare.outputs.tag }}
+
       - name: Fetch + filter
+        if: steps.extract.outputs.cache-hit != 'true'
         run: bash scripts/fetch_region.sh "${{ matrix.region }}" work
 
       - name: Build tiles
