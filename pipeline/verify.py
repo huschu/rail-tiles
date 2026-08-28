@@ -60,24 +60,28 @@ def _default_pass(p):
     return p.get("lifecycle") == "present" and "service" not in p
 
 
-# Compare at the finest chained zoom, not MIN_ZOOM. tippecanoe legitimately
-# drops sub-pixel geometry at the lowest zooms — a 30 m stub cannot be drawn at
-# z4 — so a MIN_ZOOM comparison fails on isolated tiny features that are fine.
-# z11 still catches a category wrongly dropped by chaining or collapse (the
-# pipeline logic this gate guards), because those operate uniformly z4-z11.
+# Compare at the finest chained zoom, not MIN_ZOOM: tippecanoe legitimately
+# drops sub-pixel geometry at the lowest zooms (a 30 m stub cannot be drawn at
+# z4). And require a kind at z11 only when it has real presence: a lone stub can
+# be sub-pixel even at z11 (India's single light_rail way), which is not the
+# category-drop this gate guards. A genuine network is well above the threshold.
 GATE2_LOW_ZOOM = Z.CHAIN_MAX_ZOOM
+GATE2_MIN_COUNT = 10
 
 
 def gate2_category_presence(tiles):
     lo = {f["properties"].get("kind") for t in tiles if t["properties"]["zoom"] == GATE2_LOW_ZOOM
           for f in _features(t)}
-    # Compare non-service kinds only: service track is z12+ by design (rule 2),
-    # so a kind that exists solely on service ways is legitimately absent below z12.
-    hi = {f["properties"].get("kind") for t in tiles if t["properties"]["zoom"] == Z.MAX_ZOOM
-          for f in _features(t) if "service" not in f["properties"]}
-    missing = (hi - lo) - {None}
+    # Non-service kinds only (service is z12+ by design), counted at max zoom.
+    from collections import Counter
+    hi = Counter(f["properties"].get("kind")
+                 for t in tiles if t["properties"]["zoom"] == Z.MAX_ZOOM
+                 for f in _features(t) if "service" not in f["properties"])
+    missing = sorted(k for k, n in hi.items()
+                     if k is not None and n >= GATE2_MIN_COUNT and k not in lo)
     if missing:
-        return f"GATE 2 FAIL: non-service kinds present at z{Z.MAX_ZOOM} but absent by z{GATE2_LOW_ZOOM}: {sorted(missing)}"
+        return (f"GATE 2 FAIL: non-service kinds with real presence at z{Z.MAX_ZOOM} "
+                f"but absent by z{GATE2_LOW_ZOOM}: {missing}")
     return None
 
 
@@ -142,7 +146,12 @@ def _isolated_share(tiles, zoom):
 # Parallel collapse must not sever connected lines. Collapse-on zooms are
 # compared to the collapse-off baseline (max zoom, raw ways); severing pushes the
 # isolated share far above it (pre-fix Leipzig hit 94-100% at z12-z14).
-GATE6_ZOOMS = (Z.CHAIN_MAX_ZOOM, Z.SERVICE_MIN_ZOOM, Z.COLLAPSE_MAX_ZOOM)  # 11, 12, 14
+# Only raw-way zooms. At chained zooms (z4-z11) chaining absorbs shared junction
+# nodes into chain interiors, so a connected sequence becomes one chain with
+# unshared endpoints — legitimately "isolated" by this metric, and it spikes in
+# sparse networks (Guinea, Arizona) with no severing. Severing shows on the raw
+# ways (z12-z14), where connected ways still share nodes unless a line is cut.
+GATE6_ZOOMS = (Z.SERVICE_MIN_ZOOM, Z.COLLAPSE_MAX_ZOOM)  # 12, 14
 GATE6_MARGIN = 0.20
 GATE6_MIN_FEATURES = 50
 

@@ -138,6 +138,10 @@ jobs:
 
   join:
     needs: [prepare, build]
+    # Run even if some regions failed, so a stray region does not block the whole
+    # planet; assemble from whatever succeeded. Requires prepare to have produced
+    # the matrix.
+    if: ${{ always() && needs.prepare.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -154,6 +158,9 @@ jobs:
           shopt -s globstar nullglob
           PARTS=(regions/**/*.pmtiles)
           echo "joining ${#PARTS[@]} region tilesets"
+          if [ "${#PARTS[@]}" -eq 0 ]; then
+            echo "no region tilesets produced; nothing to join"; exit 1
+          fi
           ARCHIVE="planet-${{ needs.prepare.outputs.tag }}.pmtiles"
           tile-join -o "$ARCHIVE" --no-tile-size-limit --force "${PARTS[@]}"
           ls -la "$ARCHIVE"
