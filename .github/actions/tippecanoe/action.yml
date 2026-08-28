@@ -6,8 +6,16 @@ runs:
     - id: cache
       uses: actions/cache@v4
       with:
-        path: /usr/local/bin/tippecanoe*
-        key: tippecanoe-${{ env.TIPPECANOE_VERSION || '2.79.0' }}-${{ runner.os }}
+        # List every installed binary. A glob like tippecanoe* silently drops
+        # tile-join, which then vanishes on a cache hit.
+        path: |
+          /usr/local/bin/tippecanoe
+          /usr/local/bin/tile-join
+          /usr/local/bin/tippecanoe-decode
+          /usr/local/bin/tippecanoe-json-tool
+          /usr/local/bin/tippecanoe-enumerate
+          /usr/local/bin/tippecanoe-overzoom
+        key: tippecanoe-${{ env.TIPPECANOE_VERSION || '2.79.0' }}-${{ runner.os }}-v2
     - if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
@@ -19,4 +27,8 @@ runs:
         make -C /tmp/tippecanoe -j"$(nproc)"
         sudo make -C /tmp/tippecanoe install
     - shell: bash
-      run: tippecanoe --version && command -v tile-join tippecanoe-decode
+      run: |
+        set -e
+        tippecanoe --version
+        command -v tile-join
+        command -v tippecanoe-decode
