@@ -105,6 +105,67 @@ def gate3_vertex_budget(tiles):
     return f"  gate 3 ok: worst window {worst:,} vertices at {worst_at} (<= {VERTEX_BUDGET:,})"
 
 
+def _endpoints(geom):
+    t, c = geom.get("type"), geom.get("coordinates") or []
+    if t == "LineString" and len(c) >= 2:
+        return (tuple(round(v, 6) for v in c[0]), tuple(round(v, 6) for v in c[-1]))
+    if t == "MultiLineString" and c and len(c[0]) >= 1 and len(c[-1]) >= 1:
+        return (tuple(round(v, 6) for v in c[0][0]), tuple(round(v, 6) for v in c[-1][-1]))
+    return None
+
+
+def _isolated_share(tiles, zoom):
+    """Among main-line rail at a zoom, the fraction of features whose both
+    endpoints are shared with no other feature. Connected OSM ways share a node
+    exactly, so severing a line spikes this."""
+    from collections import Counter
+    ends = Counter()
+    feats = []
+    for t in tiles:
+        if t["properties"]["zoom"] != zoom:
+            continue
+        for f in _features(t):
+            p = f["properties"]
+            if p.get("kind") != "rail" or p.get("usage") not in ("main", "branch"):
+                continue
+            e = _endpoints(f["geometry"])
+            if e:
+                feats.append(e)
+                ends[e[0]] += 1
+                ends[e[1]] += 1
+    if not feats:
+        return None, 0
+    iso = sum(1 for a, b in feats if ends[a] == 1 and ends[b] == 1)
+    return iso / len(feats), len(feats)
+
+
+# Parallel collapse must not sever connected lines. Collapse-on zooms are
+# compared to the collapse-off baseline (max zoom, raw ways); severing pushes the
+# isolated share far above it (pre-fix Leipzig hit 94-100% at z12-z14).
+GATE6_ZOOMS = (Z.CHAIN_MAX_ZOOM, Z.SERVICE_MIN_ZOOM, Z.COLLAPSE_MAX_ZOOM)  # 11, 12, 14
+GATE6_MARGIN = 0.20
+GATE6_MIN_FEATURES = 50
+
+
+def gate6_connectivity(tiles):
+    base, base_n = _isolated_share(tiles, Z.MAX_ZOOM)
+    if base is None:
+        return "  gate 6 skipped: no main-line rail"
+    ceiling = base + GATE6_MARGIN
+    worst = []
+    for z in GATE6_ZOOMS:
+        share, n = _isolated_share(tiles, z)
+        if share is None or n < GATE6_MIN_FEATURES:
+            continue
+        if share > ceiling:
+            worst.append(f"z{z} {share:.0%} (n={n})")
+    if worst:
+        return (f"GATE 6 FAIL: main-line rail isolated share exceeds collapse-off "
+                f"baseline {base:.0%}+{GATE6_MARGIN:.0%}={ceiling:.0%} at {', '.join(worst)}. "
+                f"Parallel collapse is severing connected lines.")
+    return f"  gate 6 ok: connectivity within {ceiling:.0%} of the z{Z.MAX_ZOOM} baseline ({base:.0%})"
+
+
 def gate4_attribute_completeness(tiles):
     for t in tiles:
         for f in _features(t):
@@ -165,7 +226,7 @@ def main():
             fails.append(err)
         else:
             print(f"  {fn.__name__} ok")
-    for fn in (gate3_vertex_budget,):
+    for fn in (gate3_vertex_budget, gate6_connectivity):
         msg = fn(tiles)
         if msg and msg.startswith("GATE"):
             fails.append(msg)

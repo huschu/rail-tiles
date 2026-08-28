@@ -172,34 +172,6 @@ def _stitch(members, ways):
 
 
 # ---------------------------------------------------------------- parallel collapse
-class _Grid:
-    """Bucket surviving vertices by metre cell so a proximity query touches
-    only a 3x3 neighbourhood. Bucketing uses a fixed reference cos(lat); the
-    actual accept/reject distance is the precise mean-latitude one."""
-
-    def __init__(self, cell_m, cos_ref):
-        self.cell = cell_m
-        self.cos_ref = cos_ref
-        self.buckets = defaultdict(list)
-
-    def _cell(self, lon, lat):
-        x = lon * K * self.cos_ref
-        y = lat * K
-        return (int(x // self.cell), int(y // self.cell))
-
-    def add(self, lon, lat):
-        self.buckets[self._cell(lon, lat)].append((lon, lat))
-
-    def near(self, lon, lat, dist_m):
-        cx, cy = self._cell(lon, lat)
-        for gx in (cx - 1, cx, cx + 1):
-            for gy in (cy - 1, cy, cy + 1):
-                for (olon, olat) in self.buckets.get((gx, gy), ()):
-                    if _equirect_m(lon, lat, olon, olat) < dist_m:
-                        return True
-        return False
-
-
 def _equirect_m(lon1, lat1, lon2, lat2):
     mlat = math.radians((lat1 + lat2) * 0.5)
     dx = (lon1 - lon2) * K * math.cos(mlat)
@@ -207,49 +179,150 @@ def _equirect_m(lon1, lat1, lon2, lat2):
     return math.hypot(dx, dy)
 
 
-def collapse(polys, dist_m, cos_ref):
+def _dirs(coords, cos_ref):
+    """Unit direction (in metre space) of the polyline at each vertex, averaging
+    the incoming and outgoing segments. Direction is undirected for comparison."""
+    n = len(coords)
+    segs = []
+    for i in range(n - 1):
+        dx = (coords[i + 1][0] - coords[i][0]) * K * cos_ref
+        dy = (coords[i + 1][1] - coords[i][1]) * K
+        m = math.hypot(dx, dy) or 1.0
+        segs.append((dx / m, dy / m))
+    if not segs:
+        return [(1.0, 0.0)] * n
+    out = []
+    for i in range(n):
+        a = segs[i - 1] if i > 0 else segs[0]
+        b = segs[i] if i < n - 1 else segs[-1]
+        # average as undirected: flip b to a's half-plane before summing
+        if a[0] * b[0] + a[1] * b[1] < 0:
+            b = (-b[0], -b[1])
+        vx, vy = a[0] + b[0], a[1] + b[1]
+        m = math.hypot(vx, vy) or 1.0
+        out.append((vx / m, vy / m))
+    return out
+
+
+class _BearingGrid:
+    """Survivor vertices bucketed by metre cell, each carrying its track
+    direction and the id of the feature it belongs to. A query returns the id of
+    the nearest survivor that is both within `dist` and running the same
+    direction (undirected) — so a crossing or a perpendicular near-pass never
+    shadows, and neither does a line merely sharing a corridor at an angle."""
+
+    def __init__(self, cell_m, cos_ref):
+        self.cell = max(cell_m, 1e-6)
+        self.cos_ref = cos_ref
+        self.buckets = defaultdict(list)
+
+    def _cell(self, lon, lat):
+        return (int(lon * K * self.cos_ref // self.cell), int(lat * K // self.cell))
+
+    def add(self, lon, lat, ux, uy, fid):
+        self.buckets[self._cell(lon, lat)].append((lon, lat, ux, uy, fid))
+
+    def shadow(self, lon, lat, ux, uy, dist_m, cos_tol):
+        cx, cy = self._cell(lon, lat)
+        best_id, best_d = None, dist_m
+        for gx in (cx - 1, cx, cx + 1):
+            for gy in (cy - 1, cy, cy + 1):
+                for (olon, olat, oux, ouy, fid) in self.buckets.get((gx, gy), ()):
+                    if abs(ux * oux + uy * ouy) < cos_tol:
+                        continue                      # bearings disagree
+                    d = _equirect_m(lon, lat, olon, olat)
+                    if d < best_d:
+                        best_id, best_d = fid, d
+        return best_id
+
+
+def collapse(polys, dist_m, cos_ref, bearing_tol_deg=20.0):
     """Segment-level parallel collapse within one render key.
 
-    Process longest first so a continuous main track survives whole; each later
-    polyline's vertices that fall within `dist_m` of an already-surviving vertex
-    are marked shadowed, and maximal shadowed runs are dropped. The divergent
-    remainder is kept as its own feature. No threshold, no grid-snapping, so
-    nothing is welded and no geometry is invented.
+    Delete a run of a line's vertices only where a *single* already-surviving
+    feature runs alongside it, same direction, for the whole run — a genuine
+    duplicate track. This must never sever a line that merely crosses, passes
+    near, or shares a corridor with other same-key track: those were the gaps
+    that the earlier proximity-only version cut into single lines.
+
+    Guards (all required):
+      - bearing agreement over the overlap (rejects crossings / near-passes)
+      - one survivor for the entire deleted run (rejects station throats and
+        corridors, where the shadow is a patchwork of different features)
+      - endpoints and junction vertices are never dropped, so no gap opens at a
+        connection point; the longest feature is processed first and kept whole,
+        so a survivor is never severed.
 
     Caller must group by render key before calling: only identically-rendered
     track may merge.
     """
-    grid = _Grid(max(dist_m, 1e-6), cos_ref)
+    if len(polys) < 2:
+        return list(polys)
+    cos_tol = math.cos(math.radians(bearing_tol_deg))
     order = sorted(range(len(polys)), key=lambda i: len(polys[i]["coords"]), reverse=True)
+
+    # every feature's own endpoints are junction candidates; never drop them
+    junctions = set()
+    for p in polys:
+        junctions.add((round(p["coords"][0][0], 7), round(p["coords"][0][1], 7)))
+        junctions.add((round(p["coords"][-1][0], 7), round(p["coords"][-1][1], 7)))
+
+    grid = _BearingGrid(dist_m, cos_ref)
     out = []
-    for idx in order:
+    for fid, idx in enumerate(order):
         p = polys[idx]
         coords, src = p["coords"], p["src"]
-        shadow = [grid.near(x, y, dist_m) for (x, y) in coords]
-        # split into maximal unshadowed runs
-        run_c, run_s = [], []
-        for (x, y), s, sh in zip(coords, src, shadow):
-            if sh:
-                if len(run_c) >= 2:
-                    out.append(_sub(p, run_c, run_s))
-                run_c, run_s = [], []
-            else:
-                run_c.append((x, y))
-                run_s.append(s)
-        if len(run_c) >= 2:
-            out.append(_sub(p, run_c, run_s))
-        # everything this polyline kept now shadows later ones
-        for (x, y), sh in zip(coords, shadow):
-            if not sh:
-                grid.add(x, y)
+        n = len(coords)
+        dirs = _dirs(coords, cos_ref)
+        shadow = [grid.shadow(coords[i][0], coords[i][1], dirs[i][0], dirs[i][1], dist_m, cos_tol)
+                  for i in range(n)]
+        for i in range(n):
+            if i == 0 or i == n - 1 or (round(coords[i][0], 7), round(coords[i][1], 7)) in junctions:
+                shadow[i] = None                      # protect endpoints and junctions
+
+        for c, s in _drop_single_survivor_runs(coords, src, shadow):
+            if len(c) >= 2:
+                q = dict(p)
+                q["coords"], q["src"] = c, s
+                out.append(q)
+
+        kept_dirs = _dirs(coords, cos_ref)
+        for i in range(n):
+            grid.add(coords[i][0], coords[i][1], kept_dirs[i][0], kept_dirs[i][1], fid)
     return out
 
 
-def _sub(p, coords, src):
-    out = dict(p)
-    out["coords"] = coords
-    out["src"] = src
-    return out
+def _drop_single_survivor_runs(coords, src, shadow):
+    """Yield kept (coords, src) segments, deleting only maximal runs of vertices
+    all shadowed by the same survivor id. A run shadowed by different ids over
+    its length is a corridor, not a duplicate, and is kept."""
+    n = len(coords)
+    delete = [False] * n
+    i = 0
+    while i < n:
+        if shadow[i] is None:
+            i += 1
+            continue
+        j = i
+        while j < n and shadow[j] is not None:
+            j += 1
+        run = shadow[i:j]                             # maximal shadowed run
+        if len(set(run)) == 1:                        # one survivor for the whole run
+            for k in range(i, j):
+                delete[k] = True
+        i = j
+
+    seg_c, seg_s = [], []
+    for i in range(n):
+        if delete[i]:
+            if len(seg_c) >= 2:
+                yield seg_c, seg_s
+            seg_c, seg_s = [], []
+        else:
+            seg_c.append(coords[i])
+            seg_s.append(src[i])
+    if len(seg_c) >= 2:
+        yield seg_c, seg_s
 
 
 def spans_of(src):
