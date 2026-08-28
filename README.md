@@ -1,107 +1,49 @@
 # rail-tiles
 
-Turns OSM extracts into a PMTiles vector pyramid (z4–z16) that the Oberleitung
-app reads directly over HTTP range requests. No backend, no bundled data. Built
-weekly by GitHub Actions and published to Releases.
+Turns OSM extracts into a PMTiles railway pyramid (z4–z16) served over HTTP range
+requests. Built weekly by GitHub Actions and published to Releases; a
+`manifest.json` at the stable `latest` tag names the current archive.
 
-The design rationale, measurements, and rules live in `TILE-PIPELINE.md` in the
-app repo. This README is how the code here maps to it.
+## What's here
 
-## Why this build is unusual
-
-The app spends a fixed vertex budget at render time on whatever the user filters
-to, not on a fixed set per zoom. So a category dropped at build time is
-permanently invisible. **Nothing is dropped at any zoom** — density is managed
-by chaining and parallel collapse upstream and by the client's render budget
-downstream, both reversible. Every tippecanoe call passes
-`--no-feature-limit --no-tile-size-limit`; the default behaviour drops features
-to fit tile size, silently.
-
-## Pipeline
-
-```
-per region (matrix, independent, fail-fast off)
-  fetch_region.sh   download extract (mirror fallback), filter to railway ways,
-                    delete raw immediately (peak disk = one extract)
-  build_region.py   classify tags -> typed fields; chain non-service ways once
-                    for z4-z11; per zoom simplify + collapse parallel track;
-                    one tippecanoe pass per zoom; tile-join to one region file
-  verify.py         gates 2-5 (gate 1 runs inside build_region)
-
-join
-  tile-join all regions -> europe-<date>.pmtiles
-  manifest.py -> manifest.json
-  Release <date> holds the archive; the moving 'latest' tag holds the manifest
-```
-
-### Files
-
-| file | role |
+| path | role |
 |---|---|
-| `pipeline/classify.py` | tag → typed fields, render key, emitted schema |
-| `pipeline/geometry.py` | Douglas-Peucker, chaining, parallel collapse |
-| `pipeline/zoomparams.py` | per-zoom tolerance and collapse distance |
-| `pipeline/build_region.py` | one region → pyramid (gate 1 inline) |
-| `pipeline/verify.py` | gates 2–5 |
-| `pipeline/regions.py` | the Europe matrix |
-| `pipeline/manifest.py` | manifest.json |
-| `scripts/fetch_region.sh` | download + filter + delete |
+| `pipeline/` | classify tags → typed fields, chain ways, collapse parallel track, tile per zoom, verify |
+| `scripts/fetch_region.sh` | download an extract (Geofabrik → OSM-France fallback), filter to railway ways |
+| `.github/workflows/build-tiles.yml` | per-region matrix build → one joined archive → publish |
+| `samples/` | pre-filtered extracts for local testing |
 
-## Rules encoded here
+## Output
 
-- **Chain z4–z11, raw ways z12+.** Chaining forces attribute homogeneity, worth
-  it zoomed out, not worth it where anyone inspects a way. Chained once and
-  reused across low bands (topology is tolerance-independent).
-- **Parallel collapse, segment level.** Within one render key, drop vertices
-  shadowed by an already-surviving track and keep the divergent remainder.
-  Longest-first so a continuous main track survives. Off from z15 up, where the
-  screen resolves both tracks. No grid-snapping (it welds separate lines).
-- **Service track from z12 only.** The most expensive category; nobody wants
-  yard throats at country zoom.
-- **Raw numbers in the tiles, speed bands in the app.** Tiles carry the actual
-  `maxspeed`; the app maps it to a band. The merge still caps a chain at one
-  band internally (`classify.BAND_EDGES`, which must mirror `SpeedBand.bands` in
-  the app's `Style.swift`).
-- **Source spans on chains.** Each vertex tracks its source `osm_id`, so after
-  simplify and collapse a tap still resolves to a real way (`src` = a JSON array
-  of `[osm_id, start_vertex, end_vertex]`; single-source features carry a scalar
-  `osm_id`).
+- z4–z16, single `rail` layer. Below z12: merged chains carrying source spans.
+  z12 and up: raw OSM ways.
+- Lean attributes (raw numbers; speed bands are the client's job): `kind`,
+  `lifecycle`, `usage`, `service`, `elec`, `voltage`, `frequency`,
+  `gauge_class`, `gauge_mm`, `maxspeed`, `name`, `ref`, `osm_id`, `src`.
+- Nothing is dropped by density — tippecanoe's drop flags stay off; density is
+  managed by chaining (z4–z11) and segment-level parallel collapse (z4–z14).
+- Europe is ~688 MB; a client only downloads the tiles it views.
 
-## Emitted attribute schema (lean)
+## Build
 
-`kind`, `lifecycle`, `usage?`, `service?`, `elec`, `voltage?`, `frequency?`,
-`gauge_class`, `gauge_mm?`, `maxspeed?`, `name?`, `ref?`, `osm_id`, `src?`.
-
-Deep fields (operator, owner, wikidata, protection, dates) are not carried; a
-later per-way lookup can fetch them. Bumping the schema (a field, an enum, the
-band edges) requires bumping `manifest.SCHEMA_VERSION` so clients hard-purge.
-
-## CI gates
-
-1. **Feature conservation** — tippecanoe's kept count equals the input per zoom
-   (inside `build_region.py`). Guards silent dropping.
-2. **Category presence at low zoom** — every kind at z16 is present at z4.
-3. **Vertex budget** — no ~3×4 tile window exceeds 120 k default-filter
-   vertices. Run per region; a metro spanning a country border is a known gap.
-4. **Attribute completeness** — every feature carries the render/style fields
-   and an identity (`osm_id`/`src`).
-5. **Merge honesty** — no chain spans >1 speed band or mixes known with unknown
-   speed (`verify.py --self-test`).
+Weekly cron plus manual dispatch. Per region: fetch → filter → tile → verify,
+skipping regions whose extract is unchanged (md5-keyed cache). Then `tile-join`
+into `europe-<date>.pmtiles`, publish to a dated Release, and update
+`manifest.json` at the `latest` tag. A smoke run (dispatch with a `regions`
+list) builds an artifact and does not publish.
 
 ## Local
 
 ```
-make selftest              # gate 5, no data
-make build R=switzerland   # build one checked-in sample
-make verify R=switzerland
+make selftest              # merge-honesty gate, no data
+make build R=switzerland   # build one sample region
+make verify R=switzerland  # run the gates on it
 make join                  # tile-join the sample builds
 ```
 
 Needs `osmium`, `tippecanoe`, `tile-join`, `tippecanoe-decode`, Python 3.
 
-## Size
+## Gates
 
-Measured: Switzerland 14 MB, Czechia 25 MB as full z4–z16 PMTiles. Europe is
-expected around 0.4–0.6 GB (well under the 2 GB Releases limit; range requests
-mean a client downloads only what it views). This is several times the earlier
-back-of-envelope estimate, which summed only sampled zoom levels.
+Feature conservation, category presence at low zoom, per-tile vertex budget,
+attribute completeness, merge honesty.
