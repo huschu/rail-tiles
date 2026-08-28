@@ -60,16 +60,24 @@ def _default_pass(p):
     return p.get("lifecycle") == "present" and "service" not in p
 
 
+# Compare at the finest chained zoom, not MIN_ZOOM. tippecanoe legitimately
+# drops sub-pixel geometry at the lowest zooms — a 30 m stub cannot be drawn at
+# z4 — so a MIN_ZOOM comparison fails on isolated tiny features that are fine.
+# z11 still catches a category wrongly dropped by chaining or collapse (the
+# pipeline logic this gate guards), because those operate uniformly z4-z11.
+GATE2_LOW_ZOOM = Z.CHAIN_MAX_ZOOM
+
+
 def gate2_category_presence(tiles):
-    lo = {f["properties"].get("kind") for t in tiles if t["properties"]["zoom"] == Z.MIN_ZOOM
+    lo = {f["properties"].get("kind") for t in tiles if t["properties"]["zoom"] == GATE2_LOW_ZOOM
           for f in _features(t)}
     # Compare non-service kinds only: service track is z12+ by design (rule 2),
-    # so a kind that exists solely on service ways is legitimately absent at z4.
+    # so a kind that exists solely on service ways is legitimately absent below z12.
     hi = {f["properties"].get("kind") for t in tiles if t["properties"]["zoom"] == Z.MAX_ZOOM
           for f in _features(t) if "service" not in f["properties"]}
     missing = (hi - lo) - {None}
     if missing:
-        return f"GATE 2 FAIL: non-service kinds present at z{Z.MAX_ZOOM} but dropped by z{Z.MIN_ZOOM}: {sorted(missing)}"
+        return f"GATE 2 FAIL: non-service kinds present at z{Z.MAX_ZOOM} but absent by z{GATE2_LOW_ZOOM}: {sorted(missing)}"
     return None
 
 
