@@ -1,0 +1,1006 @@
+[
+ {
+  "name": "algeria",
+  "path": "africa/algeria-latest.osm.pbf"
+ },
+ {
+  "name": "angola",
+  "path": "africa/angola-latest.osm.pbf"
+ },
+ {
+  "name": "benin",
+  "path": "africa/benin-latest.osm.pbf"
+ },
+ {
+  "name": "botswana",
+  "path": "africa/botswana-latest.osm.pbf"
+ },
+ {
+  "name": "burkina-faso",
+  "path": "africa/burkina-faso-latest.osm.pbf"
+ },
+ {
+  "name": "burundi",
+  "path": "africa/burundi-latest.osm.pbf"
+ },
+ {
+  "name": "cameroon",
+  "path": "africa/cameroon-latest.osm.pbf"
+ },
+ {
+  "name": "canary-islands",
+  "path": "africa/canary-islands-latest.osm.pbf"
+ },
+ {
+  "name": "cape-verde",
+  "path": "africa/cape-verde-latest.osm.pbf"
+ },
+ {
+  "name": "central-african-republic",
+  "path": "africa/central-african-republic-latest.osm.pbf"
+ },
+ {
+  "name": "chad",
+  "path": "africa/chad-latest.osm.pbf"
+ },
+ {
+  "name": "comores",
+  "path": "africa/comores-latest.osm.pbf"
+ },
+ {
+  "name": "congo-brazzaville",
+  "path": "africa/congo-brazzaville-latest.osm.pbf"
+ },
+ {
+  "name": "congo-democratic-republic",
+  "path": "africa/congo-democratic-republic-latest.osm.pbf"
+ },
+ {
+  "name": "djibouti",
+  "path": "africa/djibouti-latest.osm.pbf"
+ },
+ {
+  "name": "egypt",
+  "path": "africa/egypt-latest.osm.pbf"
+ },
+ {
+  "name": "equatorial-guinea",
+  "path": "africa/equatorial-guinea-latest.osm.pbf"
+ },
+ {
+  "name": "eritrea",
+  "path": "africa/eritrea-latest.osm.pbf"
+ },
+ {
+  "name": "ethiopia",
+  "path": "africa/ethiopia-latest.osm.pbf"
+ },
+ {
+  "name": "gabon",
+  "path": "africa/gabon-latest.osm.pbf"
+ },
+ {
+  "name": "ghana",
+  "path": "africa/ghana-latest.osm.pbf"
+ },
+ {
+  "name": "guinea",
+  "path": "africa/guinea-latest.osm.pbf"
+ },
+ {
+  "name": "guinea-bissau",
+  "path": "africa/guinea-bissau-latest.osm.pbf"
+ },
+ {
+  "name": "ivory-coast",
+  "path": "africa/ivory-coast-latest.osm.pbf"
+ },
+ {
+  "name": "kenya",
+  "path": "africa/kenya-latest.osm.pbf"
+ },
+ {
+  "name": "lesotho",
+  "path": "africa/lesotho-latest.osm.pbf"
+ },
+ {
+  "name": "liberia",
+  "path": "africa/liberia-latest.osm.pbf"
+ },
+ {
+  "name": "libya",
+  "path": "africa/libya-latest.osm.pbf"
+ },
+ {
+  "name": "madagascar",
+  "path": "africa/madagascar-latest.osm.pbf"
+ },
+ {
+  "name": "malawi",
+  "path": "africa/malawi-latest.osm.pbf"
+ },
+ {
+  "name": "mali",
+  "path": "africa/mali-latest.osm.pbf"
+ },
+ {
+  "name": "mauritania",
+  "path": "africa/mauritania-latest.osm.pbf"
+ },
+ {
+  "name": "mauritius",
+  "path": "africa/mauritius-latest.osm.pbf"
+ },
+ {
+  "name": "morocco",
+  "path": "africa/morocco-latest.osm.pbf"
+ },
+ {
+  "name": "mozambique",
+  "path": "africa/mozambique-latest.osm.pbf"
+ },
+ {
+  "name": "namibia",
+  "path": "africa/namibia-latest.osm.pbf"
+ },
+ {
+  "name": "niger",
+  "path": "africa/niger-latest.osm.pbf"
+ },
+ {
+  "name": "nigeria",
+  "path": "africa/nigeria-latest.osm.pbf"
+ },
+ {
+  "name": "rwanda",
+  "path": "africa/rwanda-latest.osm.pbf"
+ },
+ {
+  "name": "saint-helena-ascension-and-tristan-da-cunha",
+  "path": "africa/saint-helena-ascension-and-tristan-da-cunha-latest.osm.pbf"
+ },
+ {
+  "name": "sao-tome-and-principe",
+  "path": "africa/sao-tome-and-principe-latest.osm.pbf"
+ },
+ {
+  "name": "senegal-and-gambia",
+  "path": "africa/senegal-and-gambia-latest.osm.pbf"
+ },
+ {
+  "name": "seychelles",
+  "path": "africa/seychelles-latest.osm.pbf"
+ },
+ {
+  "name": "sierra-leone",
+  "path": "africa/sierra-leone-latest.osm.pbf"
+ },
+ {
+  "name": "somalia",
+  "path": "africa/somalia-latest.osm.pbf"
+ },
+ {
+  "name": "south-africa",
+  "path": "africa/south-africa-latest.osm.pbf"
+ },
+ {
+  "name": "south-africa-and-lesotho",
+  "path": "africa/south-africa-and-lesotho-latest.osm.pbf"
+ },
+ {
+  "name": "south-sudan",
+  "path": "africa/south-sudan-latest.osm.pbf"
+ },
+ {
+  "name": "sudan",
+  "path": "africa/sudan-latest.osm.pbf"
+ },
+ {
+  "name": "swaziland",
+  "path": "africa/swaziland-latest.osm.pbf"
+ },
+ {
+  "name": "tanzania",
+  "path": "africa/tanzania-latest.osm.pbf"
+ },
+ {
+  "name": "togo",
+  "path": "africa/togo-latest.osm.pbf"
+ },
+ {
+  "name": "tunisia",
+  "path": "africa/tunisia-latest.osm.pbf"
+ },
+ {
+  "name": "uganda",
+  "path": "africa/uganda-latest.osm.pbf"
+ },
+ {
+  "name": "zambia",
+  "path": "africa/zambia-latest.osm.pbf"
+ },
+ {
+  "name": "zimbabwe",
+  "path": "africa/zimbabwe-latest.osm.pbf"
+ },
+ {
+  "name": "afghanistan",
+  "path": "asia/afghanistan-latest.osm.pbf"
+ },
+ {
+  "name": "armenia",
+  "path": "asia/armenia-latest.osm.pbf"
+ },
+ {
+  "name": "azerbaijan",
+  "path": "asia/azerbaijan-latest.osm.pbf"
+ },
+ {
+  "name": "bangladesh",
+  "path": "asia/bangladesh-latest.osm.pbf"
+ },
+ {
+  "name": "bhutan",
+  "path": "asia/bhutan-latest.osm.pbf"
+ },
+ {
+  "name": "cambodia",
+  "path": "asia/cambodia-latest.osm.pbf"
+ },
+ {
+  "name": "china",
+  "path": "asia/china-latest.osm.pbf"
+ },
+ {
+  "name": "east-timor",
+  "path": "asia/east-timor-latest.osm.pbf"
+ },
+ {
+  "name": "gcc-states",
+  "path": "asia/gcc-states-latest.osm.pbf"
+ },
+ {
+  "name": "india",
+  "path": "asia/india-latest.osm.pbf"
+ },
+ {
+  "name": "indonesia",
+  "path": "asia/indonesia-latest.osm.pbf"
+ },
+ {
+  "name": "iran",
+  "path": "asia/iran-latest.osm.pbf"
+ },
+ {
+  "name": "iraq",
+  "path": "asia/iraq-latest.osm.pbf"
+ },
+ {
+  "name": "israel-and-palestine",
+  "path": "asia/israel-and-palestine-latest.osm.pbf"
+ },
+ {
+  "name": "japan",
+  "path": "asia/japan-latest.osm.pbf"
+ },
+ {
+  "name": "jordan",
+  "path": "asia/jordan-latest.osm.pbf"
+ },
+ {
+  "name": "kazakhstan",
+  "path": "asia/kazakhstan-latest.osm.pbf"
+ },
+ {
+  "name": "kyrgyzstan",
+  "path": "asia/kyrgyzstan-latest.osm.pbf"
+ },
+ {
+  "name": "laos",
+  "path": "asia/laos-latest.osm.pbf"
+ },
+ {
+  "name": "lebanon",
+  "path": "asia/lebanon-latest.osm.pbf"
+ },
+ {
+  "name": "malaysia-singapore-brunei",
+  "path": "asia/malaysia-singapore-brunei-latest.osm.pbf"
+ },
+ {
+  "name": "maldives",
+  "path": "asia/maldives-latest.osm.pbf"
+ },
+ {
+  "name": "mongolia",
+  "path": "asia/mongolia-latest.osm.pbf"
+ },
+ {
+  "name": "myanmar",
+  "path": "asia/myanmar-latest.osm.pbf"
+ },
+ {
+  "name": "nepal",
+  "path": "asia/nepal-latest.osm.pbf"
+ },
+ {
+  "name": "north-korea",
+  "path": "asia/north-korea-latest.osm.pbf"
+ },
+ {
+  "name": "pakistan",
+  "path": "asia/pakistan-latest.osm.pbf"
+ },
+ {
+  "name": "philippines",
+  "path": "asia/philippines-latest.osm.pbf"
+ },
+ {
+  "name": "sea",
+  "path": "asia/sea-latest.osm.pbf"
+ },
+ {
+  "name": "south-korea",
+  "path": "asia/south-korea-latest.osm.pbf"
+ },
+ {
+  "name": "sri-lanka",
+  "path": "asia/sri-lanka-latest.osm.pbf"
+ },
+ {
+  "name": "syria",
+  "path": "asia/syria-latest.osm.pbf"
+ },
+ {
+  "name": "taiwan",
+  "path": "asia/taiwan-latest.osm.pbf"
+ },
+ {
+  "name": "tajikistan",
+  "path": "asia/tajikistan-latest.osm.pbf"
+ },
+ {
+  "name": "thailand",
+  "path": "asia/thailand-latest.osm.pbf"
+ },
+ {
+  "name": "turkmenistan",
+  "path": "asia/turkmenistan-latest.osm.pbf"
+ },
+ {
+  "name": "uzbekistan",
+  "path": "asia/uzbekistan-latest.osm.pbf"
+ },
+ {
+  "name": "vietnam",
+  "path": "asia/vietnam-latest.osm.pbf"
+ },
+ {
+  "name": "yemen",
+  "path": "asia/yemen-latest.osm.pbf"
+ },
+ {
+  "name": "american-oceania",
+  "path": "australia-oceania/american-oceania-latest.osm.pbf"
+ },
+ {
+  "name": "australia",
+  "path": "australia-oceania/australia-latest.osm.pbf"
+ },
+ {
+  "name": "cook-islands",
+  "path": "australia-oceania/cook-islands-latest.osm.pbf"
+ },
+ {
+  "name": "fiji",
+  "path": "australia-oceania/fiji-latest.osm.pbf"
+ },
+ {
+  "name": "ile-de-clipperton",
+  "path": "australia-oceania/ile-de-clipperton-latest.osm.pbf"
+ },
+ {
+  "name": "kiribati",
+  "path": "australia-oceania/kiribati-latest.osm.pbf"
+ },
+ {
+  "name": "marshall-islands",
+  "path": "australia-oceania/marshall-islands-latest.osm.pbf"
+ },
+ {
+  "name": "micronesia",
+  "path": "australia-oceania/micronesia-latest.osm.pbf"
+ },
+ {
+  "name": "nauru",
+  "path": "australia-oceania/nauru-latest.osm.pbf"
+ },
+ {
+  "name": "new-caledonia",
+  "path": "australia-oceania/new-caledonia-latest.osm.pbf"
+ },
+ {
+  "name": "new-zealand",
+  "path": "australia-oceania/new-zealand-latest.osm.pbf"
+ },
+ {
+  "name": "niue",
+  "path": "australia-oceania/niue-latest.osm.pbf"
+ },
+ {
+  "name": "palau",
+  "path": "australia-oceania/palau-latest.osm.pbf"
+ },
+ {
+  "name": "papua-new-guinea",
+  "path": "australia-oceania/papua-new-guinea-latest.osm.pbf"
+ },
+ {
+  "name": "pitcairn-islands",
+  "path": "australia-oceania/pitcairn-islands-latest.osm.pbf"
+ },
+ {
+  "name": "polynesie-francaise",
+  "path": "australia-oceania/polynesie-francaise-latest.osm.pbf"
+ },
+ {
+  "name": "samoa",
+  "path": "australia-oceania/samoa-latest.osm.pbf"
+ },
+ {
+  "name": "solomon-islands",
+  "path": "australia-oceania/solomon-islands-latest.osm.pbf"
+ },
+ {
+  "name": "tokelau",
+  "path": "australia-oceania/tokelau-latest.osm.pbf"
+ },
+ {
+  "name": "tonga",
+  "path": "australia-oceania/tonga-latest.osm.pbf"
+ },
+ {
+  "name": "tuvalu",
+  "path": "australia-oceania/tuvalu-latest.osm.pbf"
+ },
+ {
+  "name": "vanuatu",
+  "path": "australia-oceania/vanuatu-latest.osm.pbf"
+ },
+ {
+  "name": "wallis-et-futuna",
+  "path": "australia-oceania/wallis-et-futuna-latest.osm.pbf"
+ },
+ {
+  "name": "bahamas",
+  "path": "central-america/bahamas-latest.osm.pbf"
+ },
+ {
+  "name": "belize",
+  "path": "central-america/belize-latest.osm.pbf"
+ },
+ {
+  "name": "costa-rica",
+  "path": "central-america/costa-rica-latest.osm.pbf"
+ },
+ {
+  "name": "cuba",
+  "path": "central-america/cuba-latest.osm.pbf"
+ },
+ {
+  "name": "el-salvador",
+  "path": "central-america/el-salvador-latest.osm.pbf"
+ },
+ {
+  "name": "guatemala",
+  "path": "central-america/guatemala-latest.osm.pbf"
+ },
+ {
+  "name": "haiti-and-domrep",
+  "path": "central-america/haiti-and-domrep-latest.osm.pbf"
+ },
+ {
+  "name": "honduras",
+  "path": "central-america/honduras-latest.osm.pbf"
+ },
+ {
+  "name": "jamaica",
+  "path": "central-america/jamaica-latest.osm.pbf"
+ },
+ {
+  "name": "nicaragua",
+  "path": "central-america/nicaragua-latest.osm.pbf"
+ },
+ {
+  "name": "panama",
+  "path": "central-america/panama-latest.osm.pbf"
+ },
+ {
+  "name": "albania",
+  "path": "europe/albania-latest.osm.pbf"
+ },
+ {
+  "name": "alps",
+  "path": "europe/alps-latest.osm.pbf"
+ },
+ {
+  "name": "andorra",
+  "path": "europe/andorra-latest.osm.pbf"
+ },
+ {
+  "name": "austria",
+  "path": "europe/austria-latest.osm.pbf"
+ },
+ {
+  "name": "azores",
+  "path": "europe/azores-latest.osm.pbf"
+ },
+ {
+  "name": "belarus",
+  "path": "europe/belarus-latest.osm.pbf"
+ },
+ {
+  "name": "belgium",
+  "path": "europe/belgium-latest.osm.pbf"
+ },
+ {
+  "name": "bosnia-herzegovina",
+  "path": "europe/bosnia-herzegovina-latest.osm.pbf"
+ },
+ {
+  "name": "britain-and-ireland",
+  "path": "europe/britain-and-ireland-latest.osm.pbf"
+ },
+ {
+  "name": "bulgaria",
+  "path": "europe/bulgaria-latest.osm.pbf"
+ },
+ {
+  "name": "croatia",
+  "path": "europe/croatia-latest.osm.pbf"
+ },
+ {
+  "name": "cyprus",
+  "path": "europe/cyprus-latest.osm.pbf"
+ },
+ {
+  "name": "czech-republic",
+  "path": "europe/czech-republic-latest.osm.pbf"
+ },
+ {
+  "name": "dach",
+  "path": "europe/dach-latest.osm.pbf"
+ },
+ {
+  "name": "denmark",
+  "path": "europe/denmark-latest.osm.pbf"
+ },
+ {
+  "name": "estonia",
+  "path": "europe/estonia-latest.osm.pbf"
+ },
+ {
+  "name": "faroe-islands",
+  "path": "europe/faroe-islands-latest.osm.pbf"
+ },
+ {
+  "name": "finland",
+  "path": "europe/finland-latest.osm.pbf"
+ },
+ {
+  "name": "france",
+  "path": "europe/france-latest.osm.pbf"
+ },
+ {
+  "name": "georgia",
+  "path": "europe/georgia-latest.osm.pbf"
+ },
+ {
+  "name": "germany",
+  "path": "europe/germany-latest.osm.pbf"
+ },
+ {
+  "name": "great-britain",
+  "path": "europe/great-britain-latest.osm.pbf"
+ },
+ {
+  "name": "greece",
+  "path": "europe/greece-latest.osm.pbf"
+ },
+ {
+  "name": "guernsey-jersey",
+  "path": "europe/guernsey-jersey-latest.osm.pbf"
+ },
+ {
+  "name": "hungary",
+  "path": "europe/hungary-latest.osm.pbf"
+ },
+ {
+  "name": "iceland",
+  "path": "europe/iceland-latest.osm.pbf"
+ },
+ {
+  "name": "ireland-and-northern-ireland",
+  "path": "europe/ireland-and-northern-ireland-latest.osm.pbf"
+ },
+ {
+  "name": "isle-of-man",
+  "path": "europe/isle-of-man-latest.osm.pbf"
+ },
+ {
+  "name": "italy",
+  "path": "europe/italy-latest.osm.pbf"
+ },
+ {
+  "name": "kosovo",
+  "path": "europe/kosovo-latest.osm.pbf"
+ },
+ {
+  "name": "latvia",
+  "path": "europe/latvia-latest.osm.pbf"
+ },
+ {
+  "name": "liechtenstein",
+  "path": "europe/liechtenstein-latest.osm.pbf"
+ },
+ {
+  "name": "lithuania",
+  "path": "europe/lithuania-latest.osm.pbf"
+ },
+ {
+  "name": "luxembourg",
+  "path": "europe/luxembourg-latest.osm.pbf"
+ },
+ {
+  "name": "macedonia",
+  "path": "europe/macedonia-latest.osm.pbf"
+ },
+ {
+  "name": "malta",
+  "path": "europe/malta-latest.osm.pbf"
+ },
+ {
+  "name": "moldova",
+  "path": "europe/moldova-latest.osm.pbf"
+ },
+ {
+  "name": "monaco",
+  "path": "europe/monaco-latest.osm.pbf"
+ },
+ {
+  "name": "montenegro",
+  "path": "europe/montenegro-latest.osm.pbf"
+ },
+ {
+  "name": "netherlands",
+  "path": "europe/netherlands-latest.osm.pbf"
+ },
+ {
+  "name": "norway",
+  "path": "europe/norway-latest.osm.pbf"
+ },
+ {
+  "name": "poland",
+  "path": "europe/poland-latest.osm.pbf"
+ },
+ {
+  "name": "portugal",
+  "path": "europe/portugal-latest.osm.pbf"
+ },
+ {
+  "name": "romania",
+  "path": "europe/romania-latest.osm.pbf"
+ },
+ {
+  "name": "serbia",
+  "path": "europe/serbia-latest.osm.pbf"
+ },
+ {
+  "name": "slovakia",
+  "path": "europe/slovakia-latest.osm.pbf"
+ },
+ {
+  "name": "slovenia",
+  "path": "europe/slovenia-latest.osm.pbf"
+ },
+ {
+  "name": "spain",
+  "path": "europe/spain-latest.osm.pbf"
+ },
+ {
+  "name": "sweden",
+  "path": "europe/sweden-latest.osm.pbf"
+ },
+ {
+  "name": "switzerland",
+  "path": "europe/switzerland-latest.osm.pbf"
+ },
+ {
+  "name": "turkey",
+  "path": "europe/turkey-latest.osm.pbf"
+ },
+ {
+  "name": "ukraine",
+  "path": "europe/ukraine-latest.osm.pbf"
+ },
+ {
+  "name": "united-kingdom",
+  "path": "europe/united-kingdom-latest.osm.pbf"
+ },
+ {
+  "name": "canada",
+  "path": "north-america/canada-latest.osm.pbf"
+ },
+ {
+  "name": "greenland",
+  "path": "north-america/greenland-latest.osm.pbf"
+ },
+ {
+  "name": "mexico",
+  "path": "north-america/mexico-latest.osm.pbf"
+ },
+ {
+  "name": "us-alabama",
+  "path": "north-america/us/alabama-latest.osm.pbf"
+ },
+ {
+  "name": "us-alaska",
+  "path": "north-america/us/alaska-latest.osm.pbf"
+ },
+ {
+  "name": "us-arizona",
+  "path": "north-america/us/arizona-latest.osm.pbf"
+ },
+ {
+  "name": "us-arkansas",
+  "path": "north-america/us/arkansas-latest.osm.pbf"
+ },
+ {
+  "name": "us-california",
+  "path": "north-america/us/california-latest.osm.pbf"
+ },
+ {
+  "name": "us-colorado",
+  "path": "north-america/us/colorado-latest.osm.pbf"
+ },
+ {
+  "name": "us-connecticut",
+  "path": "north-america/us/connecticut-latest.osm.pbf"
+ },
+ {
+  "name": "us-delaware",
+  "path": "north-america/us/delaware-latest.osm.pbf"
+ },
+ {
+  "name": "us-district-of-columbia",
+  "path": "north-america/us/district-of-columbia-latest.osm.pbf"
+ },
+ {
+  "name": "us-florida",
+  "path": "north-america/us/florida-latest.osm.pbf"
+ },
+ {
+  "name": "us-georgia",
+  "path": "north-america/us/georgia-latest.osm.pbf"
+ },
+ {
+  "name": "us-hawaii",
+  "path": "north-america/us/hawaii-latest.osm.pbf"
+ },
+ {
+  "name": "us-idaho",
+  "path": "north-america/us/idaho-latest.osm.pbf"
+ },
+ {
+  "name": "us-illinois",
+  "path": "north-america/us/illinois-latest.osm.pbf"
+ },
+ {
+  "name": "us-indiana",
+  "path": "north-america/us/indiana-latest.osm.pbf"
+ },
+ {
+  "name": "us-iowa",
+  "path": "north-america/us/iowa-latest.osm.pbf"
+ },
+ {
+  "name": "us-kansas",
+  "path": "north-america/us/kansas-latest.osm.pbf"
+ },
+ {
+  "name": "us-kentucky",
+  "path": "north-america/us/kentucky-latest.osm.pbf"
+ },
+ {
+  "name": "us-louisiana",
+  "path": "north-america/us/louisiana-latest.osm.pbf"
+ },
+ {
+  "name": "us-maine",
+  "path": "north-america/us/maine-latest.osm.pbf"
+ },
+ {
+  "name": "us-maryland",
+  "path": "north-america/us/maryland-latest.osm.pbf"
+ },
+ {
+  "name": "us-massachusetts",
+  "path": "north-america/us/massachusetts-latest.osm.pbf"
+ },
+ {
+  "name": "us-michigan",
+  "path": "north-america/us/michigan-latest.osm.pbf"
+ },
+ {
+  "name": "us-minnesota",
+  "path": "north-america/us/minnesota-latest.osm.pbf"
+ },
+ {
+  "name": "us-mississippi",
+  "path": "north-america/us/mississippi-latest.osm.pbf"
+ },
+ {
+  "name": "us-missouri",
+  "path": "north-america/us/missouri-latest.osm.pbf"
+ },
+ {
+  "name": "us-montana",
+  "path": "north-america/us/montana-latest.osm.pbf"
+ },
+ {
+  "name": "us-nebraska",
+  "path": "north-america/us/nebraska-latest.osm.pbf"
+ },
+ {
+  "name": "us-nevada",
+  "path": "north-america/us/nevada-latest.osm.pbf"
+ },
+ {
+  "name": "us-new-hampshire",
+  "path": "north-america/us/new-hampshire-latest.osm.pbf"
+ },
+ {
+  "name": "us-new-jersey",
+  "path": "north-america/us/new-jersey-latest.osm.pbf"
+ },
+ {
+  "name": "us-new-mexico",
+  "path": "north-america/us/new-mexico-latest.osm.pbf"
+ },
+ {
+  "name": "us-new-york",
+  "path": "north-america/us/new-york-latest.osm.pbf"
+ },
+ {
+  "name": "us-north-carolina",
+  "path": "north-america/us/north-carolina-latest.osm.pbf"
+ },
+ {
+  "name": "us-north-dakota",
+  "path": "north-america/us/north-dakota-latest.osm.pbf"
+ },
+ {
+  "name": "us-ohio",
+  "path": "north-america/us/ohio-latest.osm.pbf"
+ },
+ {
+  "name": "us-oklahoma",
+  "path": "north-america/us/oklahoma-latest.osm.pbf"
+ },
+ {
+  "name": "us-oregon",
+  "path": "north-america/us/oregon-latest.osm.pbf"
+ },
+ {
+  "name": "us-pennsylvania",
+  "path": "north-america/us/pennsylvania-latest.osm.pbf"
+ },
+ {
+  "name": "us-puerto-rico",
+  "path": "north-america/us/puerto-rico-latest.osm.pbf"
+ },
+ {
+  "name": "us-rhode-island",
+  "path": "north-america/us/rhode-island-latest.osm.pbf"
+ },
+ {
+  "name": "us-south-carolina",
+  "path": "north-america/us/south-carolina-latest.osm.pbf"
+ },
+ {
+  "name": "us-south-dakota",
+  "path": "north-america/us/south-dakota-latest.osm.pbf"
+ },
+ {
+  "name": "us-tennessee",
+  "path": "north-america/us/tennessee-latest.osm.pbf"
+ },
+ {
+  "name": "us-texas",
+  "path": "north-america/us/texas-latest.osm.pbf"
+ },
+ {
+  "name": "us-us-virgin-islands",
+  "path": "north-america/us/us-virgin-islands-latest.osm.pbf"
+ },
+ {
+  "name": "us-utah",
+  "path": "north-america/us/utah-latest.osm.pbf"
+ },
+ {
+  "name": "us-vermont",
+  "path": "north-america/us/vermont-latest.osm.pbf"
+ },
+ {
+  "name": "us-virginia",
+  "path": "north-america/us/virginia-latest.osm.pbf"
+ },
+ {
+  "name": "us-washington",
+  "path": "north-america/us/washington-latest.osm.pbf"
+ },
+ {
+  "name": "us-west-virginia",
+  "path": "north-america/us/west-virginia-latest.osm.pbf"
+ },
+ {
+  "name": "us-wisconsin",
+  "path": "north-america/us/wisconsin-latest.osm.pbf"
+ },
+ {
+  "name": "us-wyoming",
+  "path": "north-america/us/wyoming-latest.osm.pbf"
+ },
+ {
+  "name": "argentina",
+  "path": "south-america/argentina-latest.osm.pbf"
+ },
+ {
+  "name": "bolivia",
+  "path": "south-america/bolivia-latest.osm.pbf"
+ },
+ {
+  "name": "brazil",
+  "path": "south-america/brazil-latest.osm.pbf"
+ },
+ {
+  "name": "chile",
+  "path": "south-america/chile-latest.osm.pbf"
+ },
+ {
+  "name": "colombia",
+  "path": "south-america/colombia-latest.osm.pbf"
+ },
+ {
+  "name": "ecuador",
+  "path": "south-america/ecuador-latest.osm.pbf"
+ },
+ {
+  "name": "guyana",
+  "path": "south-america/guyana-latest.osm.pbf"
+ },
+ {
+  "name": "paraguay",
+  "path": "south-america/paraguay-latest.osm.pbf"
+ },
+ {
+  "name": "peru",
+  "path": "south-america/peru-latest.osm.pbf"
+ },
+ {
+  "name": "suriname",
+  "path": "south-america/suriname-latest.osm.pbf"
+ },
+ {
+  "name": "uruguay",
+  "path": "south-america/uruguay-latest.osm.pbf"
+ },
+ {
+  "name": "venezuela",
+  "path": "south-america/venezuela-latest.osm.pbf"
+ },
+ {
+  "name": "russia",
+  "path": "russia-latest.osm.pbf"
+ }
+]

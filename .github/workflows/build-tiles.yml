@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       regions:
-        description: "Comma-separated slugs to build instead of all of Europe (smoke test), e.g. switzerland,czech-republic"
+        description: "Comma-separated region names to build instead of the whole world (smoke test), e.g. switzerland,japan,us-california"
         required: false
         default: ""
 
@@ -31,9 +31,9 @@ jobs:
       - id: list
         run: |
           if [ -n "${{ github.event.inputs.regions }}" ]; then
-            REGIONS=$(python3 -c "import json,sys; print(json.dumps([s.strip() for s in sys.argv[1].split(',') if s.strip()]))" "${{ github.event.inputs.regions }}")
+            REGIONS=$(python3 pipeline/regions.py --names "${{ github.event.inputs.regions }}")
           else
-            REGIONS=$(python3 pipeline/regions.py europe)
+            REGIONS=$(python3 pipeline/regions.py)
           fi
           echo "regions=$REGIONS" >> "$GITHUB_OUTPUT"
       - id: stamp
@@ -72,7 +72,7 @@ jobs:
           # Geofabrik offers. When it's unreachable, fall back to a per-day key
           # so the region rebuilds rather than risking a stale cache hit.
           H=$(curl -sL --fail --retry 3 \
-                "https://download.geofabrik.de/europe/${{ matrix.region }}-latest.osm.pbf.md5" \
+                "https://download.geofabrik.de/${{ matrix.region.path }}.md5" \
                 | awk '{print $1}') || H=""
           if [ -z "$H" ]; then
             H="nohash-${{ needs.prepare.outputs.tag }}"
@@ -88,11 +88,11 @@ jobs:
           # a prior build, restore the finished tileset and skip fetch + filter +
           # tiling entirely. Any edit in the country busts the key and rebuilds.
           path: |
-            work/${{ matrix.region }}.pmtiles
-            work/${{ matrix.region }}.timestamp
+            work/${{ matrix.region.name }}.pmtiles
+            work/${{ matrix.region.name }}.timestamp
           # Pipeline source hash in the key too, so an algorithm change rebuilds
           # every region even when the extract is unchanged.
-          key: tiles-${{ matrix.region }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/**') }}
+          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/**') }}
 
       - name: Cache filtered extract
         id: extract
@@ -100,40 +100,40 @@ jobs:
         uses: actions/cache@v6
         with:
           path: |
-            work/${{ matrix.region }}-rail.osm.pbf
-            work/${{ matrix.region }}.timestamp
-          key: extract-${{ matrix.region }}-${{ steps.hash.outputs.md5 }}
+            work/${{ matrix.region.name }}-rail.osm.pbf
+            work/${{ matrix.region.name }}.timestamp
+          key: extract-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}
 
       - name: Fetch + filter
         if: steps.tiles.outputs.cache-hit != 'true' && steps.extract.outputs.cache-hit != 'true'
-        run: bash scripts/fetch_region.sh "${{ matrix.region }}" work
+        run: bash scripts/fetch_region.sh "${{ matrix.region.name }}" "${{ matrix.region.path }}" work
 
       - name: Build tiles
         if: steps.tiles.outputs.cache-hit != 'true'
         run: |
-          python3 pipeline/build_region.py "${{ matrix.region }}" \
-            "work/${{ matrix.region }}.pmtiles" \
-            "work/${{ matrix.region }}-rail.osm.pbf"
+          python3 pipeline/build_region.py "${{ matrix.region.name }}" \
+            "work/${{ matrix.region.name }}.pmtiles" \
+            "work/${{ matrix.region.name }}-rail.osm.pbf"
 
       - name: Verify (gates 2-5)
         if: steps.tiles.outputs.cache-hit != 'true'
         run: |
-          if [ -f "work/${{ matrix.region }}.pmtiles" ]; then
-            python3 pipeline/verify.py "work/${{ matrix.region }}.pmtiles"
+          if [ -f "work/${{ matrix.region.name }}.pmtiles" ]; then
+            python3 pipeline/verify.py "work/${{ matrix.region.name }}.pmtiles"
           else
             echo "no tileset (railless region); nothing to verify"
           fi
 
       - name: Reused cached tileset
         if: steps.tiles.outputs.cache-hit == 'true'
-        run: echo "${{ matrix.region }} unchanged (md5 ${{ steps.hash.outputs.md5 }}); reused tileset, skipped rebuild"
+        run: echo "${{ matrix.region.name }} unchanged (md5 ${{ steps.hash.outputs.md5 }}); reused tileset, skipped rebuild"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: region-${{ matrix.region }}
+          name: region-${{ matrix.region.name }}
           path: |
-            work/${{ matrix.region }}.pmtiles
-            work/${{ matrix.region }}.timestamp
+            work/${{ matrix.region.name }}.pmtiles
+            work/${{ matrix.region.name }}.timestamp
           retention-days: 3
 
   join:
@@ -154,7 +154,7 @@ jobs:
           shopt -s globstar nullglob
           PARTS=(regions/**/*.pmtiles)
           echo "joining ${#PARTS[@]} region tilesets"
-          ARCHIVE="europe-${{ needs.prepare.outputs.tag }}.pmtiles"
+          ARCHIVE="planet-${{ needs.prepare.outputs.tag }}.pmtiles"
           tile-join -o "$ARCHIVE" --no-tile-size-limit --force "${PARTS[@]}"
           ls -la "$ARCHIVE"
           echo "archive=$ARCHIVE" >> "$GITHUB_OUTPUT"
@@ -167,7 +167,7 @@ jobs:
           ARCHIVE="${{ steps.join.outputs.archive }}"
           BASE="https://github.com/${{ github.repository }}/releases/download"
           python3 pipeline/manifest.py \
-            --region europe \
+            --region planet \
             --pmtiles "$ARCHIVE" \
             --url "$BASE/${{ needs.prepare.outputs.tag }}/$ARCHIVE" \
             --build-id "${{ needs.prepare.outputs.build_id }}" \
@@ -185,7 +185,7 @@ jobs:
         run: |
           TAG="${{ needs.prepare.outputs.tag }}"
           gh release create "$TAG" "${{ steps.join.outputs.archive }}" \
-            --title "Europe tiles $TAG" \
+            --title "Planet tiles $TAG" \
             --notes "OSM railway PMTiles pyramid z4-z16. Source as of ${{ steps.join.outputs.osm_ts }}." \
             || gh release upload "$TAG" "${{ steps.join.outputs.archive }}" --clobber
 
