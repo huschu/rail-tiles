@@ -1,0 +1,132 @@
+name: build-tiles
+
+# Weekly full rebuild (incremental updates are deferred: at tens of MB a full
+# rebuild is simpler and has no drift). Manual dispatch for on-demand runs.
+on:
+  schedule:
+    - cron: "0 3 * * 1"        # Mondays 03:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: build-tiles
+  cancel-in-progress: false
+
+permissions:
+  contents: write               # create releases, upload assets
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      regions: ${{ steps.list.outputs.regions }}
+      tag: ${{ steps.stamp.outputs.tag }}
+      build_id: ${{ steps.stamp.outputs.build_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        run: echo "regions=$(python3 pipeline/regions.py europe)" >> "$GITHUB_OUTPUT"
+      - id: stamp
+        run: |
+          echo "tag=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+          echo "build_id=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 350          # under the 6 h job limit
+    strategy:
+      fail-fast: false            # one region failing must not poison the run
+      matrix:
+        region: ${{ fromJson(needs.prepare.outputs.regions) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk for large extracts
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+          sudo docker image prune --all --force || true
+          df -h /
+
+      - name: Install osmium
+        run: sudo apt-get update && sudo apt-get install -y osmium-tool
+
+      - uses: ./.github/actions/tippecanoe
+
+      - name: Fetch + filter
+        run: bash scripts/fetch_region.sh "${{ matrix.region }}" work
+
+      - name: Build tiles
+        run: |
+          python3 pipeline/build_region.py "${{ matrix.region }}" \
+            "work/${{ matrix.region }}.pmtiles" \
+            "work/${{ matrix.region }}-rail.osm.pbf"
+
+      - name: Verify (gates 2-5)
+        run: python3 pipeline/verify.py "work/${{ matrix.region }}.pmtiles"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: region-${{ matrix.region }}
+          path: |
+            work/${{ matrix.region }}.pmtiles
+            work/${{ matrix.region }}.timestamp
+          retention-days: 3
+
+  join:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/tippecanoe
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: regions
+          pattern: region-*
+
+      - name: tile-join all regions -> one dated archive
+        id: join
+        run: |
+          shopt -s globstar nullglob
+          PARTS=(regions/**/*.pmtiles)
+          echo "joining ${#PARTS[@]} region tilesets"
+          ARCHIVE="europe-${{ needs.prepare.outputs.tag }}.pmtiles"
+          tile-join -o "$ARCHIVE" --no-tile-size-limit --force "${PARTS[@]}"
+          ls -la "$ARCHIVE"
+          echo "archive=$ARCHIVE" >> "$GITHUB_OUTPUT"
+          # freshest source extract timestamp across all regions
+          OSM_TS=$(cat regions/**/*.timestamp 2>/dev/null | sort | tail -1)
+          echo "osm_ts=${OSM_TS:-${{ needs.prepare.outputs.build_id }}}" >> "$GITHUB_OUTPUT"
+
+      - name: Build manifest
+        run: |
+          ARCHIVE="${{ steps.join.outputs.archive }}"
+          BASE="https://github.com/${{ github.repository }}/releases/download"
+          python3 pipeline/manifest.py \
+            --region europe \
+            --pmtiles "$ARCHIVE" \
+            --url "$BASE/${{ needs.prepare.outputs.tag }}/$ARCHIVE" \
+            --build-id "${{ needs.prepare.outputs.build_id }}" \
+            --osm-timestamp "${{ steps.join.outputs.osm_ts }}" \
+            --out manifest.json
+          cat manifest.json
+
+      - name: Publish dated archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ needs.prepare.outputs.tag }}"
+          gh release create "$TAG" "${{ steps.join.outputs.archive }}" \
+            --title "Europe tiles $TAG" \
+            --notes "OSM railway PMTiles pyramid z4-z16. Source as of ${{ steps.join.outputs.osm_ts }}." \
+            || gh release upload "$TAG" "${{ steps.join.outputs.archive }}" --clobber
+
+      - name: Publish manifest at the stable 'latest' tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view latest >/dev/null 2>&1 \
+            || gh release create latest --title "latest" \
+                 --notes "Stable pointer. manifest.json names the current archive." --prerelease
+          gh release upload latest manifest.json --clobber

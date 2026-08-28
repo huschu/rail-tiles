@@ -1,0 +1,8 @@
+build/
+work/
+*.pmtiles
+*-raw.osm.pbf
+*.timestamp
+__pycache__/
+*.pyc
+.DS_Store

@@ -1,0 +1,22 @@
+name: Install tippecanoe
+description: Build tippecanoe (and tile-join, tippecanoe-decode) from source, cached by version.
+runs:
+  using: composite
+  steps:
+    - id: cache
+      uses: actions/cache@v4
+      with:
+        path: /usr/local/bin/tippecanoe*
+        key: tippecanoe-${{ env.TIPPECANOE_VERSION || '2.79.0' }}-${{ runner.os }}
+    - if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -e
+        VER="${TIPPECANOE_VERSION:-2.79.0}"
+        sudo apt-get update
+        sudo apt-get install -y build-essential libsqlite3-dev zlib1g-dev git
+        git clone --depth 1 --branch "$VER" https://github.com/felt/tippecanoe /tmp/tippecanoe
+        make -C /tmp/tippecanoe -j"$(nproc)"
+        sudo make -C /tmp/tippecanoe install
+    - shell: bash
+      run: tippecanoe --version && command -v tile-join tippecanoe-decode
