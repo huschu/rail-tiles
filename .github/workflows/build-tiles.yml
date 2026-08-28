@@ -64,29 +64,64 @@ jobs:
 
       - uses: ./.github/actions/tippecanoe
 
-      - name: Cache filtered extract
-        id: extract
+      - name: Resolve extract hash (change detector)
+        id: hash
+        run: |
+          # Geofabrik's .md5 sidecar is the content hash of the whole extract,
+          # fetched without downloading the multi-GB file. It's the only hash
+          # Geofabrik offers. When it's unreachable, fall back to a per-day key
+          # so the region rebuilds rather than risking a stale cache hit.
+          H=$(curl -sL --fail --retry 3 \
+                "https://download.geofabrik.de/europe/${{ matrix.region }}-latest.osm.pbf.md5" \
+                | awk '{print $1}') || H=""
+          if [ -z "$H" ]; then
+            H="nohash-${{ needs.prepare.outputs.tag }}"
+            echo "md5 unavailable; forcing rebuild with key $H"
+          fi
+          echo "md5=$H" >> "$GITHUB_OUTPUT"
+
+      - name: Cache region tileset
+        id: tiles
         uses: actions/cache@v4
         with:
-          # Keyed by build date: same-day re-runs (fixing a later-stage bug)
-          # reuse the extract; the weekly build has a new date and refetches.
+          # Keyed by extract content: if the country's data is byte-identical to
+          # a prior build, restore the finished tileset and skip fetch + filter +
+          # tiling entirely. Any edit in the country busts the key and rebuilds.
+          path: |
+            work/${{ matrix.region }}.pmtiles
+            work/${{ matrix.region }}.timestamp
+          # Pipeline source hash in the key too, so an algorithm change rebuilds
+          # every region even when the extract is unchanged.
+          key: tiles-${{ matrix.region }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/**') }}
+
+      - name: Cache filtered extract
+        id: extract
+        if: steps.tiles.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
           path: |
             work/${{ matrix.region }}-rail.osm.pbf
             work/${{ matrix.region }}.timestamp
-          key: extract-${{ matrix.region }}-${{ needs.prepare.outputs.tag }}
+          key: extract-${{ matrix.region }}-${{ steps.hash.outputs.md5 }}
 
       - name: Fetch + filter
-        if: steps.extract.outputs.cache-hit != 'true'
+        if: steps.tiles.outputs.cache-hit != 'true' && steps.extract.outputs.cache-hit != 'true'
         run: bash scripts/fetch_region.sh "${{ matrix.region }}" work
 
       - name: Build tiles
+        if: steps.tiles.outputs.cache-hit != 'true'
         run: |
           python3 pipeline/build_region.py "${{ matrix.region }}" \
             "work/${{ matrix.region }}.pmtiles" \
             "work/${{ matrix.region }}-rail.osm.pbf"
 
       - name: Verify (gates 2-5)
+        if: steps.tiles.outputs.cache-hit != 'true'
         run: python3 pipeline/verify.py "work/${{ matrix.region }}.pmtiles"
+
+      - name: Reused cached tileset
+        if: steps.tiles.outputs.cache-hit == 'true'
+        run: echo "${{ matrix.region }} unchanged (md5 ${{ steps.hash.outputs.md5 }}); reused tileset, skipped rebuild"
 
       - uses: actions/upload-artifact@v4
         with:
