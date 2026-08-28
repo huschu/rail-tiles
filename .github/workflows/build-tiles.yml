@@ -6,6 +6,11 @@ on:
   schedule:
     - cron: "0 3 * * 1"        # Mondays 03:00 UTC
   workflow_dispatch:
+    inputs:
+      regions:
+        description: "Comma-separated slugs to build instead of all of Europe (smoke test), e.g. switzerland,czech-republic"
+        required: false
+        default: ""
 
 concurrency:
   group: build-tiles
@@ -24,7 +29,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: list
-        run: echo "regions=$(python3 pipeline/regions.py europe)" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ -n "${{ github.event.inputs.regions }}" ]; then
+            REGIONS=$(python3 -c "import json,sys; print(json.dumps([s.strip() for s in sys.argv[1].split(',') if s.strip()]))" "${{ github.event.inputs.regions }}")
+          else
+            REGIONS=$(python3 pipeline/regions.py europe)
+          fi
+          echo "regions=$REGIONS" >> "$GITHUB_OUTPUT"
       - id: stamp
         run: |
           echo "tag=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
