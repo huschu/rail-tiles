@@ -155,6 +155,12 @@ def main():
                     "props": w["props"], "key": C.render_key(w["props"]),
                     "maxspeed": C.parse_speed(w["props"].get("maxspeed"))})
 
+    if not ways:
+        # Some regions have no railways at all (Andorra, Malta, Iceland, ...).
+        # Produce no tileset; the join step's glob simply skips this region.
+        print(f"[{args.name}] no railway ways; no tileset produced", file=sys.stderr)
+        return
+
     tmp = args.keep_tmp or tempfile.mkdtemp(prefix=f"{args.name}-")
     os.makedirs(tmp, exist_ok=True)
     parts = []
@@ -163,6 +169,11 @@ def main():
             feats = emit_zoom(chains, z, mean_lat, is_chain=True)
         else:
             feats = emit_zoom(raw, z, mean_lat, is_chain=False)
+        if not feats:
+            # e.g. a region with only service track has empty z4-z11; tippecanoe
+            # errors on empty input, so skip the band rather than emit a tile.
+            print(f"[{args.name}] z{z}: 0 features (skipped)", file=sys.stderr)
+            continue
         gj = os.path.join(tmp, f"z{z}.geojsonseq")
         with open(gj, "w") as f:
             for ft in feats:
@@ -175,6 +186,9 @@ def main():
         parts.append(part)
         print(f"[{args.name}] z{z}: {len(feats):,} features (conserved)", file=sys.stderr)
 
+    if not parts:
+        print(f"[{args.name}] no tileable features; no tileset produced", file=sys.stderr)
+        return
     tile_join(parts, args.out)
     size = os.path.getsize(args.out)
     print(f"[{args.name}] wrote {args.out}: {size/1024/1024:.2f} MB", file=sys.stderr)

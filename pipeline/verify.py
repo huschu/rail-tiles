@@ -63,11 +63,13 @@ def _default_pass(p):
 def gate2_category_presence(tiles):
     lo = {f["properties"].get("kind") for t in tiles if t["properties"]["zoom"] == Z.MIN_ZOOM
           for f in _features(t)}
+    # Compare non-service kinds only: service track is z12+ by design (rule 2),
+    # so a kind that exists solely on service ways is legitimately absent at z4.
     hi = {f["properties"].get("kind") for t in tiles if t["properties"]["zoom"] == Z.MAX_ZOOM
-          for f in _features(t)}
+          for f in _features(t) if "service" not in f["properties"]}
     missing = (hi - lo) - {None}
     if missing:
-        return f"GATE 2 FAIL: kinds present at z{Z.MAX_ZOOM} but dropped by z{Z.MIN_ZOOM}: {sorted(missing)}"
+        return f"GATE 2 FAIL: non-service kinds present at z{Z.MAX_ZOOM} but dropped by z{Z.MIN_ZOOM}: {sorted(missing)}"
     return None
 
 

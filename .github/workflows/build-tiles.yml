@@ -117,7 +117,12 @@ jobs:
 
       - name: Verify (gates 2-5)
         if: steps.tiles.outputs.cache-hit != 'true'
-        run: python3 pipeline/verify.py "work/${{ matrix.region }}.pmtiles"
+        run: |
+          if [ -f "work/${{ matrix.region }}.pmtiles" ]; then
+            python3 pipeline/verify.py "work/${{ matrix.region }}.pmtiles"
+          else
+            echo "no tileset (railless region); nothing to verify"
+          fi
 
       - name: Reused cached tileset
         if: steps.tiles.outputs.cache-hit == 'true'
