@@ -90,9 +90,10 @@ jobs:
           path: |
             work/${{ matrix.region.name }}.pmtiles
             work/${{ matrix.region.name }}.timestamp
-          # Pipeline source hash in the key too, so an algorithm change rebuilds
-          # every region even when the extract is unchanged.
-          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/**') }}
+          # Hash only the files that affect tile *content* (build + geometry), so
+          # a change to join/manifest/verify does not needlessly rebuild every
+          # region. An algorithm change here still busts the key.
+          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py') }}
 
       - name: Cache filtered extract
         id: extract
@@ -152,31 +153,25 @@ jobs:
           path: regions
           pattern: region-*
 
-      - name: tile-join all regions -> one dated archive
+      - name: Join per continent
         id: join
         run: |
           shopt -s globstar nullglob
           PARTS=(regions/**/*.pmtiles)
-          echo "joining ${#PARTS[@]} region tilesets"
           if [ "${#PARTS[@]}" -eq 0 ]; then
             echo "no region tilesets produced; nothing to join"; exit 1
           fi
-          ARCHIVE="planet-${{ needs.prepare.outputs.tag }}.pmtiles"
-          tile-join -o "$ARCHIVE" --no-tile-size-limit --force "${PARTS[@]}"
-          ls -la "$ARCHIVE"
-          echo "archive=$ARCHIVE" >> "$GITHUB_OUTPUT"
-          # freshest source extract timestamp across all regions
-          OSM_TS=$(cat regions/**/*.timestamp 2>/dev/null | sort | tail -1)
+          RESULT=$(python3 pipeline/join_planet.py regions out "${{ needs.prepare.outputs.tag }}")
+          echo "$RESULT"
+          OSM_TS=$(echo "$RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin)['osm_ts'])")
           echo "osm_ts=${OSM_TS:-${{ needs.prepare.outputs.build_id }}}" >> "$GITHUB_OUTPUT"
+          ls -la out
 
       - name: Build manifest
         run: |
-          ARCHIVE="${{ steps.join.outputs.archive }}"
-          BASE="https://github.com/${{ github.repository }}/releases/download"
           python3 pipeline/manifest.py \
-            --region planet \
-            --pmtiles "$ARCHIVE" \
-            --url "$BASE/${{ needs.prepare.outputs.tag }}/$ARCHIVE" \
+            --archives-dir out --tag "${{ needs.prepare.outputs.tag }}" \
+            --base-url "https://github.com/${{ github.repository }}/releases/download" \
             --build-id "${{ needs.prepare.outputs.build_id }}" \
             --osm-timestamp "${{ steps.join.outputs.osm_ts }}" \
             --out manifest.json
@@ -184,17 +179,19 @@ jobs:
 
       # Only a full build (no region override) publishes to the production tag
       # and the stable manifest. A smoke run (regions input set) must never
-      # clobber the live archive — it uploads a workflow artifact instead.
-      - name: Publish dated archive
+      # clobber the live archives — it uploads a workflow artifact instead.
+      - name: Publish dated archives
         if: github.event.inputs.regions == ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ needs.prepare.outputs.tag }}"
-          gh release create "$TAG" "${{ steps.join.outputs.archive }}" \
-            --title "Planet tiles $TAG" \
-            --notes "OSM railway PMTiles pyramid z4-z16. Source as of ${{ steps.join.outputs.osm_ts }}." \
-            || gh release upload "$TAG" "${{ steps.join.outputs.archive }}" --clobber
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" --title "Planet tiles $TAG" \
+                 --notes "OSM railway PMTiles pyramid z4-z16, per-continent. Source as of ${{ steps.join.outputs.osm_ts }}."
+          for f in out/*.pmtiles; do
+            gh release upload "$TAG" "$f" --clobber
+          done
 
       - name: Publish manifest at the stable 'latest' tag
         if: github.event.inputs.regions == ''
@@ -203,7 +200,7 @@ jobs:
         run: |
           gh release view latest >/dev/null 2>&1 \
             || gh release create latest --title "latest" \
-                 --notes "Stable pointer. manifest.json names the current archive." --prerelease
+                 --notes "Stable pointer. manifest.json names the current archives." --prerelease
           gh release upload latest manifest.json --clobber
 
       - name: Upload smoke build as artifact (no publish)
@@ -212,6 +209,6 @@ jobs:
         with:
           name: smoke-build
           path: |
-            ${{ steps.join.outputs.archive }}
+            out/*.pmtiles
             manifest.json
           retention-days: 3
