@@ -184,10 +184,6 @@
   "path": "africa/south-africa-latest.osm.pbf"
  },
  {
-  "name": "south-africa-and-lesotho",
-  "path": "africa/south-africa-and-lesotho-latest.osm.pbf"
- },
- {
   "name": "south-sudan",
   "path": "africa/south-sudan-latest.osm.pbf"
  },
@@ -334,10 +330,6 @@
  {
   "name": "philippines",
   "path": "asia/philippines-latest.osm.pbf"
- },
- {
-  "name": "sea",
-  "path": "asia/sea-latest.osm.pbf"
  },
  {
   "name": "south-korea",
@@ -520,10 +512,6 @@
   "path": "europe/albania-latest.osm.pbf"
  },
  {
-  "name": "alps",
-  "path": "europe/alps-latest.osm.pbf"
- },
- {
   "name": "andorra",
   "path": "europe/andorra-latest.osm.pbf"
  },
@@ -548,10 +536,6 @@
   "path": "europe/bosnia-herzegovina-latest.osm.pbf"
  },
  {
-  "name": "britain-and-ireland",
-  "path": "europe/britain-and-ireland-latest.osm.pbf"
- },
- {
   "name": "bulgaria",
   "path": "europe/bulgaria-latest.osm.pbf"
  },
@@ -566,10 +550,6 @@
  {
   "name": "czech-republic",
   "path": "europe/czech-republic-latest.osm.pbf"
- },
- {
-  "name": "dach",
-  "path": "europe/dach-latest.osm.pbf"
  },
  {
   "name": "denmark",

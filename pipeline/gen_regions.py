@@ -19,8 +19,21 @@ import sys
 
 CONTINENTS = ["africa", "asia", "australia-oceania", "central-america",
               "europe", "north-america", "south-america"]
-# combined US (too big) and its regional aggregates (overlap the state files)
-EXCLUDE = {"us", "us-midwest", "us-northeast", "us-pacific", "us-south", "us-west"}
+# Cross-border convenience extracts that overlap the country/state files and
+# would double-cover. The combined US and its 5 regional groupings (use states),
+# plus Geofabrik's spanning aggregates whose constituents all exist separately:
+#   alps -> AT/CH/DE/FR/IT/SI/LI     dach -> DE/AT/CH
+#   britain-and-ireland -> great-britain + ireland-and-northern-ireland
+#   sea -> the South-East-Asia countries
+#   south-africa-and-lesotho -> south-africa + lesotho
+# Offshore territories (azores, canary-islands, ...) are far from their mainland
+# extracts and do not overlap, so they are kept.
+EXCLUDE = {"us", "us-midwest", "us-northeast", "us-pacific", "us-south", "us-west",
+           "alps", "dach", "britain-and-ireland", "sea", "south-africa-and-lesotho"}
+# ISO-less regions known to be genuine (not aggregates); anything else without an
+# ISO code triggers a warning as a possible new aggregate to review.
+KNOWN_ISOLESS = {"great-britain", "azores", "guernsey-jersey", "isle-of-man",
+                 "canary-islands", "comores"}
 GEOFABRIK = "https://download.geofabrik.de/"
 
 
@@ -35,15 +48,23 @@ def main():
     def rel(pbf):
         return pbf[len(GEOFABRIK):] if pbf.startswith(GEOFABRIK) else pbf
 
+    def has_iso(p):
+        return bool(p.get("iso3166-1:alpha2") or p.get("iso3166-2"))
+
     regions = []
     seen = set()
     for c in CONTINENTS:
         for cid in sorted(kids.get(c, [])):
             if cid in EXCLUDE:
                 continue
-            pbf = (byid[cid].get("urls") or {}).get("pbf")
+            p = byid[cid]
+            pbf = (p.get("urls") or {}).get("pbf")
             if not pbf:
                 continue
+            if not has_iso(p) and cid not in KNOWN_ISOLESS:
+                print(f"WARNING: {cid} has no ISO code and is not a known region; "
+                      f"it may be a cross-border aggregate that double-covers. Review.",
+                      file=sys.stderr)
             name = cid.replace("/", "-")
             if name in seen:
                 continue
