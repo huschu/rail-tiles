@@ -29,7 +29,11 @@ for URL in "${MIRRORS[@]}"; do
   # big extracts hard: a ~4.6 GB country can take ~1 h, which is legitimate.
   # --speed-limit/-time only aborts under 50 KB/s for three minutes (a real
   # stall); --max-time is a generous 2 h ceiling; -C - resumes on retry.
-  if curl -L --fail --retry 4 --retry-delay 8 --retry-all-errors -C - \
+  # Retry long enough to outlast Geofabrik's daily regeneration, during which an
+  # extract briefly 404s. The OSM-France mirror lacks many smaller regions (404s
+  # immediately), so for those Geofabrik is the only source and this retry is the
+  # only safety net. 8 retries x 15 s ~= 2 min per mirror.
+  if curl -L --fail --retry 8 --retry-delay 15 --retry-all-errors -C - \
           --connect-timeout 30 --speed-limit 51200 --speed-time 180 \
           --max-time 7200 \
           -o "$RAW" "$URL"; then
