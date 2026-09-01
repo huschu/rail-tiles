@@ -26,23 +26,43 @@ BAND_EDGES = [80, 120, 160, 200, 250, 300]
 PASSENGER_KINDS = ("rail", "light_rail", "subway", "tram", "narrow_gauge", "monorail")
 
 
+MPH_TO_KMH = 1.60934
+
+
 def parse_speed(raw):
+    """One maxspeed value -> km/h int, or None. Handles the mph unit (most UK
+    railway speeds are tagged '60 mph'); a bare number is km/h per OSM default,
+    so without this the whole UK parsed to None and rendered grey."""
     if not raw:
         return None
     for part in str(raw).split(";"):
-        p = part.strip().replace("<", "").replace(">", "").replace("~", "")
+        s = part.strip().lower().replace("<", "").replace(">", "").replace("~", "")
+        mult = 1.0
+        if "mph" in s:
+            mult = MPH_TO_KMH
+            s = s.replace("mph", "")
+        else:
+            for u in ("km/h", "kmh", "kph"):
+                s = s.replace(u, "")
+        s = s.strip()
         try:
-            v = float(p)
+            v = float(s)
         except ValueError:
             continue
         if v > 0:
-            return int(v)
+            return int(round(v * mult))
     return None
 
 
 def speed_of(p):
-    """Parsed maxspeed for a way's properties, or None."""
-    return parse_speed(p.get("maxspeed"))
+    """A way's line speed in km/h. Falls back to the directional tags
+    (maxspeed:forward / :backward), taking the higher, when maxspeed is absent."""
+    v = parse_speed(p.get("maxspeed"))
+    if v is not None:
+        return v
+    dirs = [parse_speed(p.get("maxspeed:forward")), parse_speed(p.get("maxspeed:backward"))]
+    dirs = [x for x in dirs if x is not None]
+    return max(dirs) if dirs else None
 
 
 def band_of(v):

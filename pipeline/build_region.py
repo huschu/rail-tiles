@@ -153,7 +153,7 @@ def main():
     for w in ways:
         raw.append({"coords": w["coords"], "src": [w["id"]] * len(w["coords"]),
                     "props": w["props"], "key": C.render_key(w["props"]),
-                    "maxspeed": C.parse_speed(w["props"].get("maxspeed"))})
+                    "maxspeed": C.speed_of(w["props"])})
 
     if not ways:
         # Some regions have no railways at all (Andorra, Malta, Iceland, ...).
