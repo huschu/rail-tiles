@@ -25,6 +25,13 @@ import geometry as G
 import zoomparams as Z
 
 
+def _dominant(values):
+    """Most common non-empty value, or None."""
+    from collections import Counter
+    c = Counter(v for v in values if v)
+    return c.most_common(1)[0][0] if c else None
+
+
 def osmium_export(pbf, out):
     subprocess.run(
         ["osmium", "export", pbf, "-f", "geojsonseq",
@@ -97,15 +104,18 @@ def emit_zoom(polys, z, mean_lat, is_chain):
         if len(p["coords"]) < 2:
             continue
         spans = G.spans_of(p["src"])
+        agg = dict(tunnel=p.get("tunnel", False), bridge=p.get("bridge", False),
+                   protection=p.get("protection"), radio=p.get("radio"),
+                   traffic_mode=p.get("traffic_mode"))
         if is_chain:
             rep = spans[0][0] if spans else None
             rec = C.emit_props(p["props"], p.get("maxspeed"),
-                               osm_id=rep, src=spans if len(spans) > 1 else None)
+                               osm_id=rep, src=spans if len(spans) > 1 else None, **agg)
             if len(spans) == 1:
                 rec["osm_id"] = spans[0][0]
         else:
             rec = C.emit_props(p["props"], p.get("maxspeed"),
-                               osm_id=p["src"][0] if p["src"] else None)
+                               osm_id=p["src"][0] if p["src"] else None, **agg)
         feats.append(feature(p["coords"], rec))
     return feats
 
@@ -149,11 +159,27 @@ def main():
     chains = G.chain(nonservice, C.render_key, C.speed_of, C.band_of)
     print(f"[{args.name}] chained -> {len(chains):,} polylines", file=sys.stderr)
 
+    # Out-of-key fields are aggregated over a chain's members: tunnel/bridge if
+    # any member has one, protection as the most important present, radio and
+    # traffic mode as the dominant value. On raw ways they are the way's own.
+    id2props = {w["id"]: w["props"] for w in nonservice}
+    for ch in chains:
+        mprops = [id2props[m] for m in set(ch["src"]) if m in id2props]
+        ch["tunnel"] = any(C.is_tunnel(mp) for mp in mprops)
+        ch["bridge"] = any(C.is_bridge(mp) for mp in mprops)
+        prots = [pr for pr in (C.protection_of(mp) for mp in mprops) if pr[0]]
+        ch["protection"] = max(prots, key=lambda pr: pr[1]) if prots else None
+        ch["radio"] = _dominant(C.radio_of(mp) for mp in mprops)
+        ch["traffic_mode"] = _dominant(C.traffic_mode_of(mp) for mp in mprops)
+
     raw = []
     for w in ways:
         raw.append({"coords": w["coords"], "src": [w["id"]] * len(w["coords"]),
                     "props": w["props"], "key": C.render_key(w["props"]),
-                    "maxspeed": C.speed_of(w["props"])})
+                    "maxspeed": C.speed_of(w["props"]),
+                    "tunnel": C.is_tunnel(w["props"]), "bridge": C.is_bridge(w["props"]),
+                    "protection": C.protection_of(w["props"]),
+                    "radio": C.radio_of(w["props"]), "traffic_mode": C.traffic_mode_of(w["props"])})
 
     if not ways:
         # Some regions have no railways at all (Andorra, Malta, Iceland, ...).

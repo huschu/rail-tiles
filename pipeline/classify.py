@@ -1,38 +1,74 @@
 """
 Tag classification and the emitted attribute schema.
 
-Ported from pack-builder/bundle/build_bundle.py (the bundled build), extended in
-two ways for the tile pipeline:
+Ported from pack-builder/bundle/build_bundle.py, extended for the tile pipeline:
+raw numbers not band indices (bands live in the app), and a render key that keeps
+a chain homogeneous in everything the map colours or filters.
 
-  - It emits raw numbers, not band indices. Speed bands live in the app
-    (SpeedBand.bands in Style.swift); the tiles carry the actual maxspeed. The
-    band edges below exist only as a merge guard so a chain never straddles two
-    of the colours the app will draw. They are never written to a feature.
-
-  - render_key keeps the exact electrification system (ac15000@16.7 ...) so a
-    chain is homogeneous in voltage/frequency and the single voltage/frequency
-    it emits is truthful. gauge_class likewise.
-
-The lean tile schema (see TILE-PIPELINE.md, "Tile schema"): render key plus
-speed/voltage/frequency/gauge as numbers, plus osm id and name/ref for tap
-identity. Deep fields (operator, owner, wikidata, protection, dates) are not
-carried; a later per-way lookup can fetch them.
+Construction and proposed lines tag their attributes under a prefix
+(construction:electrified, proposed:voltage, ...). `_get` reads the prefixed tag
+for those lines and falls back to the plain tag, so a future line shows its
+planned electrification, speed, gauge and protection while lifecycle still marks
+it as not in service.
 """
+import protection
 
 # MUST stay identical to SpeedBand.bands in swift-app/SwiftApp/Style.swift.
 # Used only to cap a chain at one band while merging; never emitted.
 BAND_EDGES = [80, 120, 160, 200, 250, 300]
 
-PASSENGER_KINDS = ("rail", "light_rail", "subway", "tram", "narrow_gauge", "monorail")
-
+PASSENGER_KINDS = ("rail", "light_rail", "subway", "tram", "narrow_gauge",
+                   "monorail", "funicular")
+_KIND_KEYS = ("railway", "construction", "proposed", "disused", "abandoned",
+              "razed", "preserved")
 
 MPH_TO_KMH = 1.60934
 
 
+def lifecycle(p):
+    if p.get("railway") == "proposed":
+        return "proposed"
+    if p.get("construction") or p.get("railway") == "construction":
+        return "construction"
+    if p.get("railway:preserved") == "yes" or p.get("railway") == "preserved":
+        return "preserved"
+    if p.get("disused") not in (None, "no"):
+        return "disused"
+    if p.get("abandoned") not in (None, "no"):
+        return "abandoned"
+    if p.get("razed") not in (None, "no") or p.get("railway") == "razed":
+        return "razed"
+    return "present"
+
+
+def _pfx(p):
+    lc = lifecycle(p)
+    return lc + ":" if lc in ("construction", "proposed") else ""
+
+
+def _get(p, key):
+    """Value of `key`, preferring the construction:/proposed: prefixed tag."""
+    pfx = _pfx(p)
+    if pfx:
+        v = p.get(pfx + key)
+        if v is not None:
+            return v
+    return p.get(key)
+
+
+def kind_of(p):
+    for key in _KIND_KEYS:
+        v = p.get(key)
+        if v in PASSENGER_KINDS:
+            return v
+    if p.get("railway") == "preserved" or p.get("railway:preserved") == "yes":
+        return "rail"
+    return None
+
+
 def parse_speed(raw):
     """One maxspeed value -> km/h int, or None. Handles the mph unit (most UK
-    railway speeds are tagged '60 mph'); a bare number is km/h per OSM default,
-    so without this the whole UK parsed to None and rendered grey."""
+    railway speeds are tagged '60 mph'); a bare number is km/h per OSM default."""
     if not raw:
         return None
     for part in str(raw).split(";"):
@@ -55,12 +91,11 @@ def parse_speed(raw):
 
 
 def speed_of(p):
-    """A way's line speed in km/h. Falls back to the directional tags
-    (maxspeed:forward / :backward), taking the higher, when maxspeed is absent."""
-    v = parse_speed(p.get("maxspeed"))
+    """Line speed in km/h, falling back to maxspeed:forward/:backward (higher)."""
+    v = parse_speed(_get(p, "maxspeed"))
     if v is not None:
         return v
-    dirs = [parse_speed(p.get("maxspeed:forward")), parse_speed(p.get("maxspeed:backward"))]
+    dirs = [parse_speed(_get(p, "maxspeed:forward")), parse_speed(_get(p, "maxspeed:backward"))]
     dirs = [x for x in dirs if x is not None]
     return max(dirs) if dirs else None
 
@@ -74,28 +109,8 @@ def band_of(v):
     return len(BAND_EDGES)
 
 
-def kind_of(p):
-    for key in ("railway", "construction", "proposed", "disused"):
-        v = p.get(key)
-        if v in PASSENGER_KINDS:
-            return v
-    return None
-
-
-def lifecycle(p):
-    if p.get("railway") == "proposed":
-        return "proposed"
-    if p.get("construction") or p.get("railway") == "construction":
-        return "construction"
-    if p.get("disused") not in (None, "no"):
-        return "disused"
-    if p.get("abandoned") not in (None, "no"):
-        return "abandoned"
-    return "present"
-
-
 def electrification_state(p):
-    v = p.get("electrified")
+    v = _get(p, "electrified")
     if v in ("contact_line", "rail", "third_rail", "4th_rail", "ground_level_power_supply"):
         return "electrified"
     if v == "no":
@@ -115,18 +130,17 @@ def first_num(raw):
 
 
 def elec_system(p):
-    """Detailed electrification identity for the merge key only (not emitted).
-    A chain homogeneous in this is homogeneous in voltage and frequency."""
+    """Detailed electrification identity for the merge key only (not emitted)."""
     if electrification_state(p) in ("non_electrified", "unknown"):
         return electrification_state(p)
-    v, f = first_num(p.get("voltage")), first_num(p.get("frequency"))
+    v, f = first_num(_get(p, "voltage")), first_num(_get(p, "frequency"))
     if v is None:
         return "elec-unknown"
     return f"{'dc' if f == 0 else 'ac'}{int(v)}@{f}"
 
 
 def gauges_of(p):
-    g = p.get("gauge")
+    g = _get(p, "gauge")
     if not g:
         return []
     return [x.strip() for x in str(g).split(";") if x.strip()]
@@ -157,41 +171,66 @@ def gauge_mm(p):
         return None
 
 
+def radio_of(p):
+    return _get(p, "railway:radio")
+
+
+def traffic_mode_of(p):
+    return _get(p, "railway:traffic_mode")
+
+
+def protection_of(p):
+    return protection.train_protection(p, _pfx(p))
+
+
+def is_tunnel(p):
+    v = _get(p, "tunnel")
+    return bool(v) and v != "no"
+
+
+def is_bridge(p):
+    v = _get(p, "bridge")
+    return bool(v) and v != "no"
+
+
 def render_key(p):
-    """Chains must be homogeneous in everything the map can express, so one
-    colour is truthful. Speed is excluded here and capped by the band rule."""
-    return (kind_of(p), lifecycle(p), p.get("usage"), elec_system(p), gauge_class(p))
+    """Chains merge on the dimensions that must stay exact to draw one truthful
+    colour AND that run in long stretches. Train protection, radio and traffic
+    mode are deliberately excluded: keying on them would fragment low-zoom chains
+    and defeat parallel collapse, so they ride as per-chain aggregates instead
+    (dominant value over the members), exact on raw ways from z12 up."""
+    return (kind_of(p), lifecycle(p), _get(p, "usage"), elec_system(p), gauge_class(p))
 
 
 def is_service(p):
-    """Service track (yard, siding, spur, crossover). The single most expensive
-    category; present only from z12 up (rule 2)."""
+    """Service track (yard, siding, spur, crossover); present only from z12."""
     return bool(p.get("service"))
 
 
 def keep(p):
-    """A railway way we tile at all: any recognised kind."""
     return kind_of(p) is not None
 
 
-def emit_props(p, maxspeed, osm_id=None, src=None):
-    """The lean MVT attribute record. maxspeed is passed in because a chain
-    takes its fastest member rather than any single way's tag."""
+def emit_props(p, maxspeed, osm_id=None, src=None, tunnel=False, bridge=False,
+               protection=None, radio=None, traffic_mode=None):
+    """The MVT attribute record. The out-of-key aggregates (maxspeed, tunnel,
+    bridge, protection, radio, traffic_mode) are passed in: on a chain they are
+    aggregated over its members, on a raw way they are the way's own. The base
+    fields come from p, which is homogeneous in them (they are in the key)."""
     rec = {
         "kind": kind_of(p),
         "lifecycle": lifecycle(p),
         "elec": electrification_state(p),
         "gauge_class": gauge_class(p),
     }
-    usage = p.get("usage")
-    service = p.get("service")
+    usage = _get(p, "usage")
     if usage:
         rec["usage"] = usage
-    if service:
-        rec["service"] = service
+    if p.get("service"):
+        rec["service"] = p["service"]
     if maxspeed is not None:
         rec["maxspeed"] = int(maxspeed)
-    v, f = first_num(p.get("voltage")), first_num(p.get("frequency"))
+    v, f = first_num(_get(p, "voltage")), first_num(_get(p, "frequency"))
     if v is not None:
         rec["voltage"] = v
     if f is not None:
@@ -199,6 +238,16 @@ def emit_props(p, maxspeed, osm_id=None, src=None):
     gmm = gauge_mm(p)
     if gmm is not None:
         rec["gauge_mm"] = gmm
+    if radio:
+        rec["radio"] = radio
+    if traffic_mode:
+        rec["traffic_mode"] = traffic_mode
+    if protection and protection[0]:
+        rec["train_protection"], rec["tp_rank"] = protection
+    if tunnel:
+        rec["tunnel"] = True
+    if bridge:
+        rec["bridge"] = True
     if p.get("name"):
         rec["name"] = p["name"]
     if p.get("ref"):
@@ -206,8 +255,6 @@ def emit_props(p, maxspeed, osm_id=None, src=None):
     if osm_id:
         rec["osm_id"] = osm_id
     if src:
-        # MVT attributes are scalar, so source spans ride as a JSON string:
-        # [[osm_id, start_vertex, end_vertex], ...]. The app parses on tap.
         import json
         rec["src"] = json.dumps(src, separators=(",", ":"))
     return rec

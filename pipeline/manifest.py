@@ -23,7 +23,7 @@ import os
 import struct
 import sys
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 MIN_ZOOM = 4
 MAX_ZOOM = 16
 

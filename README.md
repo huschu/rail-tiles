@@ -20,10 +20,19 @@ each archive with its bounds.
 
 - z4–z16, single `rail` layer. Below z12: merged chains carrying source spans.
   z12 and up: raw OSM ways.
-- Lean attributes (raw numbers; speed bands are the client's job): `kind`,
+- Attributes (raw numbers; speed bands are the client's job): `kind`,
   `lifecycle`, `usage`, `service`, `elec`, `voltage`, `frequency`,
-  `gauge_class`, `gauge_mm`, `maxspeed`, `name`, `ref`, `osm_id`, `src`.
-  `maxspeed` handles mph and the `maxspeed:forward`/`:backward` tags.
+  `gauge_class`, `gauge_mm`, `maxspeed`, `train_protection`, `tp_rank`, `radio`,
+  `traffic_mode`, `tunnel`, `bridge`, `name`, `ref`, `osm_id`, `src`.
+- `kind` includes funicular; `lifecycle` includes preserved and razed.
+  Construction and proposed lines read their prefixed tags
+  (`construction:electrified`, `proposed:maxspeed`, ...) so they carry planned
+  attributes. `maxspeed` handles mph and `maxspeed:forward`/`:backward`.
+- `train_protection` (with `tp_rank`), `radio` and `traffic_mode` are exact per
+  way from z12 up and the dominant value over a merged line below; `tunnel` and
+  `bridge` are exact per way from z12 up and "line contains one" below. So those
+  views work at every zoom, sharpening from line-level to segment-level as you
+  zoom in.
 - Nothing is dropped by density — tippecanoe's drop flags stay off; density is
   managed by chaining (z4–z11) and segment-level parallel collapse (z4–z14).
 - **8 continent archives, ~2.6 GB total** (a single planet file exceeds the 2 GB
