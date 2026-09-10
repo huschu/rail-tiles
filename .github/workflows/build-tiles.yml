@@ -45,8 +45,11 @@ jobs:
     needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 350          # under the 6 h job limit
+    # A region never reds the run: transient drops carry forward last good data,
+    # and the join's coverage gate reds the run only on a broad outage.
+    continue-on-error: true
     strategy:
-      fail-fast: false            # one region failing must not poison the run
+      fail-fast: false            # one region failing must not cancel the others
       matrix:
         region: ${{ fromJson(needs.prepare.outputs.regions) }}
     steps:
@@ -68,9 +71,8 @@ jobs:
         id: hash
         run: |
           # Geofabrik's .md5 sidecar is the content hash of the whole extract,
-          # fetched without downloading the multi-GB file. It's the only hash
-          # Geofabrik offers. When it's unreachable, fall back to a per-day key
-          # so the region rebuilds rather than risking a stale cache hit.
+          # fetched without downloading the multi-GB file. When it's unreachable,
+          # fall back to a per-day key so the region rebuilds.
           H=$(curl -sL --fail --retry 3 \
                 "https://download.geofabrik.de/${{ matrix.region.path }}.md5" \
                 | awk '{print $1}') || H=""
@@ -80,22 +82,22 @@ jobs:
           fi
           echo "md5=$H" >> "$GITHUB_OUTPUT"
 
-      - name: Cache region tileset
+      - name: Restore region tileset
         id: tiles
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
-          # Keyed by extract content: if the country's data is byte-identical to
-          # a prior build, restore the finished tileset and skip fetch + filter +
-          # tiling entirely. Any edit in the country busts the key and rebuilds.
+          # Exact key = byte-identical extract AND same build code -> reuse as is.
+          # restore-keys falls back to the newest prior tileset for this region
+          # (last known good), which the build step carries forward if the fresh
+          # build is unavailable, so a dropped region is stale, never blank.
           path: |
             work/${{ matrix.region.name }}.pmtiles
             work/${{ matrix.region.name }}.timestamp
-          # Hash only the files that affect tile *content* (build + geometry), so
-          # a change to join/manifest/verify does not needlessly rebuild every
-          # region. An algorithm change here still busts the key.
           key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py') }}
+          restore-keys: |
+            tiles-${{ matrix.region.name }}-
 
-      - name: Cache filtered extract
+      - name: Restore filtered extract
         id: extract
         if: steps.tiles.outputs.cache-hit != 'true'
         uses: actions/cache@v6
@@ -105,36 +107,60 @@ jobs:
             work/${{ matrix.region.name }}.timestamp
           key: extract-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}
 
-      - name: Fetch + filter
-        if: steps.tiles.outputs.cache-hit != 'true' && steps.extract.outputs.cache-hit != 'true'
-        run: bash scripts/fetch_region.sh "${{ matrix.region.name }}" "${{ matrix.region.path }}" work
-
-      - name: Build tiles
+      - name: Build or carry forward
+        id: build
         if: steps.tiles.outputs.cache-hit != 'true'
+        env:
+          NAME: ${{ matrix.region.name }}
+          PATHREL: ${{ matrix.region.path }}
         run: |
-          python3 pipeline/build_region.py "${{ matrix.region.name }}" \
-            "work/${{ matrix.region.name }}.pmtiles" \
-            "work/${{ matrix.region.name }}-rail.osm.pbf"
-
-      - name: Verify (gates 2-5)
-        if: steps.tiles.outputs.cache-hit != 'true'
-        run: |
-          if [ -f "work/${{ matrix.region.name }}.pmtiles" ]; then
-            python3 pipeline/verify.py "work/${{ matrix.region.name }}.pmtiles"
-          else
-            echo "no tileset (railless region); nothing to verify"
+          set -uo pipefail
+          NEW="work/$NAME.new.pmtiles"
+          if [ ! -f "work/$NAME-rail.osm.pbf" ]; then
+            bash scripts/fetch_region.sh "$NAME" "$PATHREL" work || true
           fi
+          if [ -f "work/$NAME-rail.osm.pbf" ]; then
+            if python3 pipeline/build_region.py "$NAME" "$NEW" "work/$NAME-rail.osm.pbf"; then
+              if [ ! -f "$NEW" ]; then
+                rm -f "work/$NAME.pmtiles"          # railless region: legitimately empty
+                echo "$NAME: no railways"; exit 0
+              fi
+              if python3 pipeline/verify.py "$NEW"; then
+                mv "$NEW" "work/$NAME.pmtiles"
+                echo "built=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              echo "::warning::$NAME: gates failed on fresh build"
+            else
+              echo "::warning::$NAME: build failed on fresh extract"
+            fi
+            rm -f "$NEW"
+          else
+            echo "::warning::$NAME: download failed on both mirrors"
+          fi
+          if [ -f "work/$NAME.pmtiles" ]; then
+            echo "::warning::$NAME: carrying forward last good tileset"; exit 0
+          fi
+          echo "::error::$NAME: no fresh build and no prior tileset"; exit 1
 
-      - name: Reused cached tileset
-        if: steps.tiles.outputs.cache-hit == 'true'
-        run: echo "${{ matrix.region.name }} unchanged (md5 ${{ steps.hash.outputs.md5 }}); reused tileset, skipped rebuild"
+      - name: Save region tileset            # only a fresh build, under the exact key
+        if: steps.build.outputs.built == 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            work/${{ matrix.region.name }}.pmtiles
+            work/${{ matrix.region.name }}.timestamp
+          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py') }}
 
-      - uses: actions/upload-artifact@v7
+      - name: Upload region tileset          # skipped only when the region hard-failed
+        if: success()
+        uses: actions/upload-artifact@v7
         with:
           name: region-${{ matrix.region.name }}
           path: |
             work/${{ matrix.region.name }}.pmtiles
             work/${{ matrix.region.name }}.timestamp
+          if-no-files-found: ignore
           retention-days: 3
 
   join:
@@ -152,6 +178,27 @@ jobs:
         with:
           path: regions
           pattern: region-*
+
+      - name: Coverage gate
+        # Green when a handful of regions drop (each carried forward as stale, or
+        # genuinely absent); red only on a broad outage. A region has an artifact
+        # unless it hard-failed with no prior tileset to carry forward.
+        env:
+          REGIONS: ${{ needs.prepare.outputs.regions }}
+        run: |
+          python3 - <<'PY'
+          import json, os, glob
+          expected = {r["name"] for r in json.loads(os.environ["REGIONS"])}
+          present = {os.path.basename(d)[len("region-"):]
+                     for d in glob.glob("regions/region-*") if os.path.isdir(d)}
+          missing = sorted(expected - present)
+          print(f"regions handled: {len(present)}/{len(expected)}")
+          if missing:
+              print("::warning title=Regions dropped::" + ", ".join(missing))
+          allowed = 5
+          if len(missing) > allowed:
+              raise SystemExit(f"::error::{len(missing)} regions missing (> {allowed}); likely an outage")
+          PY
 
       - name: Join per continent
         id: join
