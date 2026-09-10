@@ -8,7 +8,7 @@ is capped so it can never weld a genuinely separate line.
 import math
 
 TILE_PX = 512
-MIN_ZOOM = 4
+MIN_ZOOM = 2      # z2 = 16 world tiles: a full-globe overview, heavily generalized
 MAX_ZOOM = 16
 
 CHAIN_MAX_ZOOM = 11      # chain z4-z11, raw ways from z12 (rule 3)
