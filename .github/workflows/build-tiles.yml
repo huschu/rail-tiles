@@ -93,7 +93,7 @@ jobs:
           path: |
             work/${{ matrix.region.name }}.pmtiles
             work/${{ matrix.region.name }}.timestamp
-          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py') }}
+          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py', 'scripts/fetch_region.sh') }}
           restore-keys: |
             tiles-${{ matrix.region.name }}-
 
@@ -105,7 +105,7 @@ jobs:
           path: |
             work/${{ matrix.region.name }}-rail.osm.pbf
             work/${{ matrix.region.name }}.timestamp
-          key: extract-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}
+          key: extract-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('scripts/fetch_region.sh') }}
 
       - name: Build or carry forward
         id: build
@@ -150,7 +150,7 @@ jobs:
           path: |
             work/${{ matrix.region.name }}.pmtiles
             work/${{ matrix.region.name }}.timestamp
-          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py') }}
+          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py', 'scripts/fetch_region.sh') }}
 
       - name: Upload region tileset          # skipped only when the region hard-failed
         if: success()

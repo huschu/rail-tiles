@@ -14,7 +14,15 @@ mkdir -p "$OUT"
 
 RAW="$OUT/$NAME-raw.osm.pbf"
 FILT="$OUT/$NAME-rail.osm.pbf"
-KINDS="rail,light_rail,narrow_gauge,construction,proposed,disused,abandoned,monorail,subway,tram"
+# Keep every track kind the classifier knows (incl. funicular) plus every
+# lifecycle form: railway=<value> and the prefixed keys (construction:railway,
+# disused:railway, ...). Must stay a superset of classify.PASSENGER_KINDS and
+# classify.lifecycle, or a kind is silently dropped before tiling.
+FILTER=(
+  "w/railway=rail,light_rail,narrow_gauge,monorail,subway,tram,funicular,construction,proposed,disused,abandoned,razed,preserved"
+  w/construction:railway w/proposed:railway w/disused:railway
+  w/abandoned:railway w/razed:railway w/preserved:railway w/railway:preserved
+)
 
 MIRRORS=(
   "https://download.geofabrik.de/$RELPATH"
@@ -50,7 +58,7 @@ osmium fileinfo -e -g data.timestamp.last "$RAW" > "$OUT/$NAME.timestamp" 2>/dev
 echo "[$NAME] extract timestamp: $(cat "$OUT/$NAME.timestamp" 2>/dev/null)"
 
 echo "[$NAME] filtering to railway ways..."
-if nice -n 10 osmium tags-filter "$RAW" "w/railway=$KINDS" -o "$FILT" --overwrite; then
+if nice -n 10 osmium tags-filter "$RAW" "${FILTER[@]}" -o "$FILT" --overwrite; then
   echo "[$NAME] filtered -> $(du -h "$FILT" | cut -f1)"
 else
   echo "[$NAME] FILTER FAILED"; rm -f "$RAW"; exit 1
