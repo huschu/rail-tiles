@@ -19,24 +19,29 @@ BAND_EDGES = [80, 120, 160, 200, 250, 300]
 
 PASSENGER_KINDS = ("rail", "light_rail", "subway", "tram", "narrow_gauge",
                    "monorail", "funicular")
-_KIND_KEYS = ("railway", "construction", "proposed", "disused", "abandoned",
-              "razed", "preserved")
+# OSM tags a lifecycle line three ways: railway=<state> (value form),
+# railway=rail + <state>=yes (base+flag), and <state>:railway=rail (prefix
+# namespace). Razed is almost always the prefix form, so missing it dropped all
+# razed track; the prefix form is common for disused/abandoned too.
+LIFECYCLE_PREFIXES = ("construction", "proposed", "disused", "abandoned",
+                      "razed", "preserved")
 
 MPH_TO_KMH = 1.60934
 
 
 def lifecycle(p):
-    if p.get("railway") == "proposed":
+    railway = p.get("railway")
+    if railway == "proposed" or p.get("proposed:railway"):
         return "proposed"
-    if p.get("construction") or p.get("railway") == "construction":
+    if railway == "construction" or p.get("construction") or p.get("construction:railway"):
         return "construction"
-    if p.get("railway:preserved") == "yes" or p.get("railway") == "preserved":
+    if railway == "preserved" or p.get("railway:preserved") == "yes" or p.get("preserved:railway"):
         return "preserved"
-    if p.get("disused") not in (None, "no"):
+    if railway == "disused" or p.get("disused") not in (None, "no") or p.get("disused:railway"):
         return "disused"
-    if p.get("abandoned") not in (None, "no"):
+    if railway == "abandoned" or p.get("abandoned") not in (None, "no") or p.get("abandoned:railway"):
         return "abandoned"
-    if p.get("razed") not in (None, "no") or p.get("railway") == "razed":
+    if railway == "razed" or p.get("razed") not in (None, "no") or p.get("razed:railway"):
         return "razed"
     return "present"
 
@@ -57,11 +62,20 @@ def _get(p, key):
 
 
 def kind_of(p):
-    for key in _KIND_KEYS:
-        v = p.get(key)
-        if v in PASSENGER_KINDS:
-            return v
-    if p.get("railway") == "preserved" or p.get("railway:preserved") == "yes":
+    v = p.get("railway")
+    if v in PASSENGER_KINDS:
+        return v
+    # kind carried under a lifecycle namespace: construction=rail,
+    # construction:railway=rail, razed:railway=rail, ...
+    for pre in LIFECYCLE_PREFIXES:
+        k = p.get(pre) or p.get(pre + ":railway")
+        if k in PASSENGER_KINDS:
+            return k
+    # a lifecycle line with no finer kind (railway=razed, or a bare
+    # <state>:railway=yes, or the preserved flag) is track: default to rail.
+    if v in LIFECYCLE_PREFIXES or p.get("railway:preserved") == "yes":
+        return "rail"
+    if any(p.get(pre + ":railway") for pre in LIFECYCLE_PREFIXES):
         return "rail"
     return None
 
