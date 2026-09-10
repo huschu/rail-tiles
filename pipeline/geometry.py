@@ -325,6 +325,50 @@ def _drop_single_survivor_runs(coords, src, shadow):
         yield seg_c, seg_s
 
 
+def attribute_lod(values, lengths, min_len):
+    """Level-of-detail for an along-line attribute. `values`/`lengths` describe
+    consecutive segments; merge any run of one value shorter than `min_len` into
+    whichever neighbouring value covers more length, until every run is long
+    enough or the line is one run. Returns a new per-segment value list. This is
+    what lets a short 400 km/h blip vanish into the dominant band, or a short
+    tunnel into the at-grade line, at low zoom, and resolve as you zoom in."""
+    n = len(values)
+    if n == 0:
+        return []
+    runs = []  # [value, length, i0, i1]
+    for i, (v, l) in enumerate(zip(values, lengths)):
+        if runs and runs[-1][0] == v:
+            runs[-1][1] += l
+            runs[-1][3] = i
+        else:
+            runs.append([v, l, i, i])
+    while len(runs) > 1:
+        short = [k for k, r in enumerate(runs) if r[1] < min_len]
+        if not short:
+            break
+        k = min(short, key=lambda k: runs[k][1])          # dissolve the shortest first
+        left = runs[k - 1] if k > 0 else None
+        right = runs[k + 1] if k + 1 < len(runs) else None
+        into = left if (right is None or (left and left[1] >= right[1])) else right
+        into[1] += runs[k][1]
+        into[2] = min(into[2], runs[k][2])
+        into[3] = max(into[3], runs[k][3])
+        del runs[k]
+        coalesced = [runs[0]]
+        for r in runs[1:]:
+            if coalesced[-1][0] == r[0]:
+                coalesced[-1][1] += r[1]
+                coalesced[-1][3] = r[3]
+            else:
+                coalesced.append(r)
+        runs = coalesced
+    out = [None] * n
+    for v, _, i0, i1 in runs:
+        for i in range(i0, i1 + 1):
+            out[i] = v
+    return out
+
+
 def spans_of(src):
     """Collapse a per-vertex src list into [[osm_id, start_idx, end_idx], ...]
     contiguous runs. end_idx is inclusive."""

@@ -37,3 +37,13 @@ def collapse_dist_m(z, lat):
     huge so the cap dominates (≈10 m everywhere), which is where the 36.6 %
     saving was measured."""
     return min(_COLLAPSE_PX * _ground_m_per_px(z, lat), _COLLAPSE_CAP_M)
+
+
+_LOD_PX = 1.5  # an along-line attribute run shorter than this many pixels merges
+
+
+def attr_min_len_m(z, lat):
+    """Length below which an attribute run (a speed band, a tunnel, ...) is
+    merged into its dominant neighbour at this zoom. Tracks pixel size, so
+    detail resolves as you zoom in."""
+    return _LOD_PX * _ground_m_per_px(z, lat)
