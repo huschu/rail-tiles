@@ -79,8 +79,9 @@ Releases are permanent: GitHub keeps a release and its assets until deleted, so
 old `.changed` and `.hashes` stay fetchable and the chain is only bounded by the
 `builds` cap. The per-region tilesets are Actions **artifacts** (`retention-days:
 3`) and do expire; the published archives are release assets and do not. Storage
-grows ~3.7 GB per weekly build with no pruning, so a prune step for dated
-releases older than the `builds` window is a reasonable future addition.
+grows ~3.7 GB per weekly build with no pruning; [RETENTION.md](RETENTION.md) plans
+a prune step that strips the large `.pmtiles` and `.hashes` from old releases and
+keeps the change lists.
 
 ## Local
 
