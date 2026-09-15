@@ -1,7 +1,10 @@
 name: build-tiles
 
-# Weekly full rebuild (incremental updates are deferred: at tens of MB a full
-# rebuild is simpler and has no drift). Manual dispatch for on-demand runs.
+# Weekly full rebuild. Each continent archive is re-joined and republished whole
+# (unchanged regions restore from the md5 cache, so it is mostly a re-join, not a
+# recompute). Archives are never patched in place; clients update incrementally
+# from the per-tile change lists the join step publishes. Manual dispatch for
+# on-demand runs.
 on:
   schedule:
     - cron: "0 3 * * 1"        # Mondays 03:00 UTC

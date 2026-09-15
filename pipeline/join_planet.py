@@ -2,9 +2,9 @@
 """
 Group the per-region tilesets by continent and tile-join each into one archive.
 
-The planet as a single file is 2.59 GB, over the 2 GB per-asset Releases limit,
-so it ships as per-continent archives instead (each well under the limit, room to
-grow). The client loads every archive whose bounds overlap the viewport, so the
+The planet as a single file is ~3.6 GB, over the 2 GB per-asset Releases limit,
+so it ships as per-continent archives instead (the largest, Europe, is ~1.2 GB).
+The client loads every archive whose bounds overlap the viewport, so the
 map is seamless across continent boundaries.
 
 Continent is the first path segment of a region's Geofabrik path (russia has no

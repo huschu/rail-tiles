@@ -3,7 +3,7 @@
 Build one region's PMTiles pyramid (steps 2-5 of the pipeline).
 
   load    osmium export the filtered .pbf to GeoJSON-seq linestrings
-  chain   join non-service ways end-to-end for z4-z11 (once; rule 3)
+  chain   join non-service ways end-to-end for z2-z11 (once; rule 3)
   per z   simplify at the band tolerance, collapse parallel track, emit GeoJSON
   tile    one tippecanoe pass per zoom (-Z z -z z), then tile-join
 
@@ -263,7 +263,7 @@ def main():
         else:
             feats = emit_zoom(raw, z, mean_lat, is_chain=False)
         if not feats:
-            # e.g. a region with only service track has empty z4-z11; tippecanoe
+            # e.g. a region with only service track has empty z2-z11; tippecanoe
             # errors on empty input, so skip the band rather than emit a tile.
             print(f"[{args.name}] z{z}: 0 features (skipped)", file=sys.stderr)
             continue
