@@ -11,9 +11,18 @@ PMTiles header, so the client loads only the archives overlapping the viewport.
   schemaVersion  bump on any attribute-schema change -> client hard-purges
   buildId        fresh data, same schema -> client soft-purges
   osmTimestamp   the source extracts' own timestamp, shown as "data as of"
+  builds         recent dated tags, oldest->newest, that carry a per-tile change
+                 list. A client soft-purge walks the tags after its last-seen one
+                 and applies each <region>-<tag>.changed instead of wiping the
+                 cache. A client older than builds[0] falls back to a full purge.
+
+The change list for tag T lives next to its archives at
+  {baseUrl}/{T}/{region}-{T}.changed   (gzipped JSON)
+and the client derives that URL from baseUrl, the builds tags, and each region.
 
 Usage: manifest.py --archives-dir DIR --tag TAG --base-url URL \
-                   --build-id ISO --osm-timestamp ISO --out manifest.json
+                   --build-id ISO --osm-timestamp ISO \
+                   [--recent-builds t1,t2,...] --out manifest.json
 """
 import argparse
 import glob
@@ -54,6 +63,9 @@ def main():
     ap.add_argument("--base-url", required=True)   # .../releases/download
     ap.add_argument("--build-id", required=True)
     ap.add_argument("--osm-timestamp", required=True)
+    ap.add_argument("--recent-builds", default="",
+                    help="comma-separated dated tags, oldest->newest, that carry "
+                         "a change list (typically the last ~12 builds incl. this one)")
     ap.add_argument("--out", default="manifest.json")
     args = ap.parse_args()
 
@@ -71,12 +83,17 @@ def main():
     if not archives:
         sys.exit(f"no archives matching *-{args.tag}.pmtiles in {args.archives_dir}")
 
+    builds = [t for t in args.recent_builds.split(",") if t]
+
     manifest = {
         "schemaVersion": SCHEMA_VERSION,
         "buildId": args.build_id,
         "osmTimestamp": args.osm_timestamp,
         "minZoom": MIN_ZOOM,
         "maxZoom": MAX_ZOOM,
+        "tag": args.tag,
+        "baseUrl": args.base_url,
+        "builds": builds,
         "archives": archives,
     }
     with open(args.out, "w") as f:

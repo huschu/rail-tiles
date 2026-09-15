@@ -214,6 +214,59 @@ jobs:
           echo "osm_ts=${OSM_TS:-${{ needs.prepare.outputs.build_id }}}" >> "$GITHUB_OUTPUT"
           ls -la out
 
+      # Per-tile change lists. A weekly rebuild changes <1% of tiles, so instead
+      # of the client purging its whole cache on a buildId bump, we publish the
+      # exact tiles that differ from the previous build. Each continent gets a
+      # build-internal <region>-<tag>.hashes (tileId -> content hash) and a
+      # client-facing <region>-<tag>.changed (gzipped JSON of the z/x/y that
+      # changed). The diff reads only the previous build's small .hashes asset,
+      # never its archive.
+      - name: Compute per-tile change lists
+        id: diffs
+        if: github.event.inputs.regions == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -uo pipefail
+          shopt -s nullglob
+          # Recent dated tags (YYYYMMDD), newest first, excluding this run's tag.
+          mapfile -t TAGS < <(gh release list --limit 40 --json tagName -q '.[].tagName' \
+            | grep -E '^[0-9]{8}$' | grep -v "^${TAG}$" | sort -ru)
+          PREV="${TAGS[0]:-}"
+          echo "previous build: ${PREV:-<none>}"
+
+          for f in out/*-"${TAG}".pmtiles; do
+            region=$(basename "$f"); region="${region%-${TAG}.pmtiles}"
+            python3 pipeline/diff_tiles.py hash "$f" "out/${region}-${TAG}.hashes"
+          done
+
+          if [ -n "$PREV" ]; then
+            mkdir -p prev
+            for f in out/*-"${TAG}".hashes; do
+              region=$(basename "$f"); region="${region%-${TAG}.hashes}"
+              if gh release download "$PREV" -p "${region}-${PREV}.hashes" -D prev 2>/dev/null; then
+                python3 pipeline/diff_tiles.py diff --region "$region" \
+                  --from "$PREV" --to "$TAG" \
+                  --prev "prev/${region}-${PREV}.hashes" \
+                  --cur "out/${region}-${TAG}.hashes" \
+                  --out "out/${region}-${TAG}.changed" \
+                  || echo "::warning::${region}: diff failed; clients full-refresh this continent"
+              else
+                echo "::warning::${region}: no ${PREV} hashes; clients full-refresh this continent"
+              fi
+            done
+          else
+            echo "::warning::no previous build; publishing hashes only, no change lists this run"
+          fi
+
+          # builds chain for the manifest: recent tags oldest->newest incl. this
+          # one, capped. A client applies each tag's .changed after its last-seen.
+          RECENT=$( { printf '%s\n' "${TAGS[@]}"; echo "$TAG"; } \
+            | grep -E '^[0-9]{8}$' | sort -u | tail -n 12 | paste -sd, - )
+          echo "builds=${RECENT}" >> "$GITHUB_OUTPUT"
+          ls -la out
+
       - name: Build manifest
         run: |
           python3 pipeline/manifest.py \
@@ -221,6 +274,7 @@ jobs:
             --base-url "https://github.com/${{ github.repository }}/releases/download" \
             --build-id "${{ needs.prepare.outputs.build_id }}" \
             --osm-timestamp "${{ steps.join.outputs.osm_ts }}" \
+            --recent-builds "${{ steps.diffs.outputs.builds }}" \
             --out manifest.json
           cat manifest.json
 
@@ -235,8 +289,9 @@ jobs:
           TAG="${{ needs.prepare.outputs.tag }}"
           gh release view "$TAG" >/dev/null 2>&1 \
             || gh release create "$TAG" --title "Planet tiles $TAG" \
-                 --notes "OSM railway PMTiles pyramid z4-z16, per-continent. Source as of ${{ steps.join.outputs.osm_ts }}."
-          for f in out/*.pmtiles; do
+                 --notes "OSM railway PMTiles pyramid z2-z16, per-continent. Source as of ${{ steps.join.outputs.osm_ts }}."
+          for f in out/*.pmtiles out/*.hashes out/*.changed; do
+            [ -e "$f" ] || continue
             gh release upload "$TAG" "$f" --clobber
           done
 
