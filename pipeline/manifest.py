@@ -65,7 +65,7 @@ def main():
     ap.add_argument("--osm-timestamp", required=True)
     ap.add_argument("--recent-builds", default="",
                     help="comma-separated dated tags, oldest->newest, that carry "
-                         "a change list (typically the last ~12 builds incl. this one)")
+                         "a change list (the last 26 builds incl. this one)")
     ap.add_argument("--out", default="manifest.json")
     args = ap.parse_args()
 

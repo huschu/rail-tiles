@@ -32,7 +32,7 @@ thing to keep.
 |---|---|---|
 | `<region>-<tag>.pmtiles` | the 2 newest builds | older |
 | `<region>-<tag>.hashes` | the 2 newest builds | older |
-| `<region>-<tag>.changed` | all (at least the `builds` window, 12) | — |
+| `<region>-<tag>.changed` | all (at least the `builds` window, 26) | — |
 
 Keeping two builds of archives, rather than one, is a grace window: a client that
 loaded the prior manifest just before a new build lands keeps working until it

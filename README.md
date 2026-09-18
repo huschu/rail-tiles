@@ -69,11 +69,14 @@ previous build:
 `diff_tiles.py` hashes each joined archive and compares against the previous
 build's `.hashes` (downloaded from the prior release, never the multi-GB
 archive). The manifest gains `tag`, `baseUrl`, and `builds` (recent dated tags,
-oldest→newest). A client finds its last-seen tag in `builds`, fetches each later
-tag's `.changed`, and drops only those tiles; a client older than `builds[0]`, or
-one that 404s a `.changed`, falls back to a full purge. The first build after
-this shipped has no prior `.hashes`, so it publishes hashes only; change lists
-begin one build later.
+oldest→newest, the last 26 builds). A client finds its last-seen tag in
+`builds`, fetches each later tag's `.changed`, and marks only those tiles stale;
+a client older than `builds[0]`, or one that 404s a `.changed`, marks the whole
+continent stale and refetches it lazily. The window is half a year at weekly
+cadence because the app ships a low-zoom seed stamped with a build tag and
+chains it forward from there, so it has to stay inside the window for the life
+of an app release. The first build after this shipped has no prior `.hashes`, so
+it publishes hashes only; change lists begin one build later.
 
 Releases are permanent: GitHub keeps a release and its assets until deleted, so
 old `.changed` and `.hashes` stay fetchable and the chain is only bounded by the

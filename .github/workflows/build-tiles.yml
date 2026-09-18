@@ -234,7 +234,7 @@ jobs:
           set -uo pipefail
           shopt -s nullglob
           # Recent dated tags (YYYYMMDD), newest first, excluding this run's tag.
-          mapfile -t TAGS < <(gh release list --limit 40 --json tagName -q '.[].tagName' \
+          mapfile -t TAGS < <(gh release list --limit 60 --json tagName -q '.[].tagName' \
             | grep -E '^[0-9]{8}$' | grep -v "^${TAG}$" | sort -ru)
           PREV="${TAGS[0]:-}"
           echo "previous build: ${PREV:-<none>}"
@@ -265,8 +265,12 @@ jobs:
 
           # builds chain for the manifest: recent tags oldest->newest incl. this
           # one, capped. A client applies each tag's .changed after its last-seen.
+          # The app ships a low-zoom seed stamped with a build tag and chains it
+          # forward from there, so the window has to outlive an app release:
+          # 26 weekly builds is half a year. A client that falls outside it
+          # marks its whole cache stale and refetches lazily.
           RECENT=$( { printf '%s\n' "${TAGS[@]}"; echo "$TAG"; } \
-            | grep -E '^[0-9]{8}$' | sort -u | tail -n 12 | paste -sd, - )
+            | grep -E '^[0-9]{8}$' | sort -u | tail -n 26 | paste -sd, - )
           echo "builds=${RECENT}" >> "$GITHUB_OUTPUT"
           ls -la out
 
