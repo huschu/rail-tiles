@@ -258,6 +258,12 @@ def emit_props(p, maxspeed, osm_id=None, src=None, tunnel=False, bridge=False,
     gmm = gauge_mm(p)
     if gmm is not None:
         rec["gauge_mm"] = gmm
+    gs = gauges_of(p)
+    if len(gs) > 1:
+        # Multi-gauge features carry their raw list so the client can colour and
+        # label the real gauges. Like gauge_mm, this is the representative
+        # member's value on a merged chain (render_key keys on gauge_class only).
+        rec["gauge_mm_list"] = ";".join(gs)
     if colour is not None:
         rec["colour"] = colour
     if radio:
