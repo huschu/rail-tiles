@@ -11,6 +11,7 @@ for those lines and falls back to the plain tag, so a future line shows its
 planned electrification, speed, gauge and protection while lifecycle still marks
 it as not in service.
 """
+import colour
 import protection
 
 # MUST stay identical to SpeedBand.bands in swift-app/SwiftApp/Style.swift.
@@ -193,6 +194,10 @@ def traffic_mode_of(p):
     return _get(p, "railway:traffic_mode")
 
 
+def colour_of(p):
+    return colour.parse(_get(p, "colour") or _get(p, "color"))
+
+
 def protection_of(p):
     return protection.train_protection(p, _pfx(p))
 
@@ -226,10 +231,10 @@ def keep(p):
 
 
 def emit_props(p, maxspeed, osm_id=None, src=None, tunnel=False, bridge=False,
-               protection=None, radio=None, traffic_mode=None):
+               protection=None, radio=None, traffic_mode=None, colour=None):
     """The MVT attribute record. The out-of-key aggregates (maxspeed, tunnel,
-    bridge, protection, radio, traffic_mode) are passed in: on a chain they are
-    aggregated over its members, on a raw way they are the way's own. The base
+    bridge, protection, radio, traffic_mode, colour) are passed in: on a chain
+    they are aggregated over its members, on a raw way they are the way's own. The base
     fields come from p, which is homogeneous in them (they are in the key)."""
     rec = {
         "kind": kind_of(p),
@@ -252,6 +257,8 @@ def emit_props(p, maxspeed, osm_id=None, src=None, tunnel=False, bridge=False,
     gmm = gauge_mm(p)
     if gmm is not None:
         rec["gauge_mm"] = gmm
+    if colour is not None:
+        rec["colour"] = colour
     if radio:
         rec["radio"] = radio
     if traffic_mode:

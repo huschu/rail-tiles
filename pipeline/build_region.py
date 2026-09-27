@@ -80,7 +80,7 @@ def seg_attrs(ch, cos_lat, id2props):
     coords, src = ch["coords"], ch["src"]
     K = 111320.0
     a = {"speed_raw": [], "band": [], "tunnel": [], "bridge": [],
-         "protection": [], "radio": [], "traffic": [], "length": []}
+         "protection": [], "radio": [], "traffic": [], "colour": [], "length": []}
     for i in range(len(coords) - 1):
         p = id2props.get(src[i], {})
         sp = C.speed_of(p)
@@ -91,6 +91,7 @@ def seg_attrs(ch, cos_lat, id2props):
         a["protection"].append(C.protection_of(p))
         a["radio"].append(C.radio_of(p))
         a["traffic"].append(C.traffic_mode_of(p))
+        a["colour"].append(C.colour_of(p))
         dx = (coords[i + 1][0] - coords[i][0]) * K * cos_lat
         dy = (coords[i + 1][1] - coords[i][1]) * K
         a["length"].append((dx * dx + dy * dy) ** 0.5)
@@ -113,6 +114,7 @@ def segment_chain(ch, z, mean_lat):
     prot = G.attribute_lod(a["protection"], ln, ml)
     rad = G.attribute_lod(a["radio"], ln, ml)
     traf = G.attribute_lod(a["traffic"], ln, ml)
+    col = G.attribute_lod(a["colour"], ln, ml)
     coords, src, raw = ch["coords"], ch["src"], a["speed_raw"]
 
     subs = []
@@ -129,15 +131,16 @@ def segment_chain(ch, z, mean_lat):
         subs.append({
             "coords": c, "src": src[lo:hi + 2], "props": ch["props"], "maxspeed": ms,
             "tunnel": tun[lo], "bridge": brg[lo], "protection": prot[lo],
-            "radio": rad[lo], "traffic_mode": traf[lo],
+            "radio": rad[lo], "traffic_mode": traf[lo], "colour": col[lo],
             "key": (ch["key"], band[lo], tun[lo], brg[lo],
-                    prot[lo] and prot[lo][0], rad[lo], traf[lo]),
+                    prot[lo] and prot[lo][0], rad[lo], traf[lo], col[lo]),
         })
 
     lo = 0
     for i in range(1, n_seg):
-        if (band[i], tun[i], brg[i], prot[i], rad[i], traf[i]) != \
-           (band[i - 1], tun[i - 1], brg[i - 1], prot[i - 1], rad[i - 1], traf[i - 1]):
+        if (band[i], tun[i], brg[i], prot[i], rad[i], traf[i], col[i]) != \
+           (band[i - 1], tun[i - 1], brg[i - 1], prot[i - 1], rad[i - 1], traf[i - 1],
+            col[i - 1]):
             cut(lo, i - 1)
             lo = i
     cut(lo, n_seg - 1)
@@ -177,7 +180,7 @@ def emit_zoom(polys, z, mean_lat, is_chain):
         spans = G.spans_of(p["src"])
         agg = dict(tunnel=p.get("tunnel", False), bridge=p.get("bridge", False),
                    protection=p.get("protection"), radio=p.get("radio"),
-                   traffic_mode=p.get("traffic_mode"))
+                   traffic_mode=p.get("traffic_mode"), colour=p.get("colour"))
         if is_chain:
             rep = spans[0][0] if spans else None
             rec = C.emit_props(p["props"], p.get("maxspeed"),
@@ -246,7 +249,8 @@ def main():
                     "maxspeed": C.speed_of(w["props"]),
                     "tunnel": C.is_tunnel(w["props"]), "bridge": C.is_bridge(w["props"]),
                     "protection": C.protection_of(w["props"]),
-                    "radio": C.radio_of(w["props"]), "traffic_mode": C.traffic_mode_of(w["props"])})
+                    "radio": C.radio_of(w["props"]), "traffic_mode": C.traffic_mode_of(w["props"]),
+                    "colour": C.colour_of(w["props"])})
 
     if not ways:
         # Some regions have no railways at all (Andorra, Malta, Iceland, ...).

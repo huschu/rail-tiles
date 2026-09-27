@@ -27,13 +27,16 @@ cache (see [Incremental updates](#incremental-updates)).
 - Attributes (raw numbers; speed bands are the client's job): `kind`,
   `lifecycle`, `usage`, `service`, `elec`, `voltage`, `frequency`,
   `gauge_class`, `gauge_mm`, `maxspeed`, `train_protection`, `tp_rank`, `radio`,
-  `traffic_mode`, `tunnel`, `bridge`, `name`, `ref`, `osm_id`, `src`.
+  `traffic_mode`, `colour`, `tunnel`, `bridge`, `name`, `ref`, `osm_id`, `src`.
 - `kind` includes funicular; `lifecycle` includes preserved and razed.
   Construction and proposed lines read their prefixed tags
   (`construction:electrified`, `proposed:maxspeed`, ...) so they carry planned
   attributes. `maxspeed` handles mph and `maxspeed:forward`/`:backward`.
-- `train_protection` (with `tp_rank`), `radio` and `traffic_mode` are exact per
-  way from z12 up and the dominant value over a merged line below; `tunnel` and
+- `colour` is the OSM `colour` tag as a 24-bit RGB integer (`0xE4013A`). Hex in
+  any case, `#rgb` and CSS names are normalised; values that do not parse are
+  dropped. An integer is smaller in the tile than a `#rrggbb` string.
+- `train_protection` (with `tp_rank`), `radio`, `traffic_mode` and `colour` are
+  exact per way from z12 up and the dominant value over a merged line below; `tunnel` and
   `bridge` are exact per way from z12 up and "line contains one" below. So those
   views work at every zoom, sharpening from line-level to segment-level as you
   zoom in.
