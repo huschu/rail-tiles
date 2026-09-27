@@ -27,7 +27,8 @@ cache (see [Incremental updates](#incremental-updates)).
 - Attributes (raw numbers; speed bands are the client's job): `kind`,
   `lifecycle`, `usage`, `service`, `elec`, `voltage`, `frequency`,
   `gauge_class`, `gauge_mm`, `maxspeed`, `train_protection`, `tp_rank`, `radio`,
-  `traffic_mode`, `colour`, `tunnel`, `bridge`, `name`, `ref`, `osm_id`, `src`.
+  `traffic_mode`, `colour`, `tunnel`, `bridge`, `name`, `ref`, `osm_id`, `src`,
+  `absorbed` (ways a parallel collapse deleted beside this track, `w1;w2`).
 - `kind` includes funicular; `lifecycle` includes preserved and razed.
   Construction and proposed lines read their prefixed tags
   (`construction:electrified`, `proposed:maxspeed`, ...) so they carry planned

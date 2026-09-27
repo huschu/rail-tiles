@@ -186,9 +186,11 @@ def emit_zoom(polys, z, mean_lat, is_chain):
         if len(p["coords"]) < 2:
             continue
         spans = G.spans_of(p["src"])
+        absorbed = sorted(set(p.get("absorbed", ())) - set(p["src"]) - {""})
         agg = dict(tunnel=p.get("tunnel", False), bridge=p.get("bridge", False),
                    protection=p.get("protection"), radio=p.get("radio"),
-                   traffic_mode=p.get("traffic_mode"), colour=p.get("colour"))
+                   traffic_mode=p.get("traffic_mode"), colour=p.get("colour"),
+                   absorbed=absorbed)
         if is_chain:
             rep = spans[0][0] if spans else None
             rec = C.emit_props(p["props"], p.get("maxspeed"),

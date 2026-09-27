@@ -231,7 +231,8 @@ def keep(p):
 
 
 def emit_props(p, maxspeed, osm_id=None, src=None, tunnel=False, bridge=False,
-               protection=None, radio=None, traffic_mode=None, colour=None):
+               protection=None, radio=None, traffic_mode=None, colour=None,
+               absorbed=None):
     """The MVT attribute record. The out-of-key aggregates (maxspeed, tunnel,
     bridge, protection, radio, traffic_mode, colour) are passed in: on a chain
     they are aggregated over its members, on a raw way they are the way's own. The base
@@ -278,4 +279,8 @@ def emit_props(p, maxspeed, osm_id=None, src=None, tunnel=False, bridge=False,
     if src:
         import json
         rec["src"] = json.dumps(src, separators=(",", ":"))
+    if absorbed:
+        # Ways a parallel collapse deleted beside this track, "w1;w2". Lets a
+        # client find a route's track where only its neighbour is drawn.
+        rec["absorbed"] = ";".join(absorbed)
     return rec

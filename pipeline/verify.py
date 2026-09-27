@@ -18,7 +18,7 @@ is a single line, not the whole tileset — loading it whole OOM'd the runner on
 China (409 MB).
 
 Usage: verify.py REGION.pmtiles          run gates 2-6 on a tileset
-       verify.py --self-test             run gate 5 (no tileset needed)
+       verify.py --self-test             run gate 5 and the collapse check (no tileset needed)
 """
 import json
 import re
@@ -168,11 +168,29 @@ def gate5_merge_honesty():
     return None
 
 
+def collapse_names_absorbed():
+    """A track the parallel collapse deletes must be named on the survivor
+    drawn in its place, or a client matching a route by way id loses it."""
+    step = 0.0001                                     # ~11 m between vertices
+    near = [(i * step, 0.0) for i in range(21)]
+    beside = [(i * step, 0.00004) for i in range(2, 19)]   # ~4.5 m alongside
+    polys = [{"coords": near, "src": ["w1"] * len(near), "key": 0},
+             {"coords": beside, "src": ["w2"] * len(beside), "key": 0}]
+    out = G.collapse(polys, 10.0, 1.0)
+    if any("w2" in p["src"] for p in out):
+        return "COLLAPSE FAIL: the parallel track was not collapsed; the test setup is wrong"
+    if not any("w2" in p.get("absorbed", ()) for p in out if "w1" in p["src"]):
+        return "COLLAPSE FAIL: the survivor does not name the track it absorbed"
+    return None
+
+
 def main():
     if len(sys.argv) == 2 and sys.argv[1] == "--self-test":
         err = gate5_merge_honesty()
         print(err or "  gate 5 ok: merge honest (no cross-band, no known/unknown mix)")
-        sys.exit(1 if err else 0)
+        absorbed_err = collapse_names_absorbed()
+        print(absorbed_err or "  collapse ok: survivors name the tracks they absorbed")
+        sys.exit(1 if err or absorbed_err else 0)
     if len(sys.argv) != 2:
         print(__doc__)
         sys.exit(2)

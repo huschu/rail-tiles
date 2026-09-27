@@ -219,21 +219,23 @@ class _BearingGrid:
     def _cell(self, lon, lat):
         return (int(lon * K * self.cos_ref // self.cell), int(lat * K // self.cell))
 
-    def add(self, lon, lat, ux, uy, fid):
-        self.buckets[self._cell(lon, lat)].append((lon, lat, ux, uy, fid))
+    def add(self, lon, lat, ux, uy, fid, piece):
+        self.buckets[self._cell(lon, lat)].append((lon, lat, ux, uy, fid, piece))
 
     def shadow(self, lon, lat, ux, uy, dist_m, cos_tol):
+        """(feature id, output piece) of the nearest same-bearing survivor
+        vertex, or None. The piece is the emitted feature that draws it."""
         cx, cy = self._cell(lon, lat)
-        best_id, best_d = None, dist_m
+        best, best_d = None, dist_m
         for gx in (cx - 1, cx, cx + 1):
             for gy in (cy - 1, cy, cy + 1):
-                for (olon, olat, oux, ouy, fid) in self.buckets.get((gx, gy), ()):
+                for (olon, olat, oux, ouy, fid, piece) in self.buckets.get((gx, gy), ()):
                     if abs(ux * oux + uy * ouy) < cos_tol:
                         continue                      # bearings disagree
                     d = _equirect_m(lon, lat, olon, olat)
                     if d < best_d:
-                        best_id, best_d = fid, d
-        return best_id
+                        best, best_d = (fid, piece), d
+        return best
 
 
 def collapse(polys, dist_m, cos_ref, bearing_tol_deg=20.0):
@@ -255,6 +257,10 @@ def collapse(polys, dist_m, cos_ref, bearing_tol_deg=20.0):
 
     Caller must group by render key before calling: only identically-rendered
     track may merge.
+
+    A surviving feature records the source ids of the runs it replaced in
+    `absorbed`, so a client matching a route by way id still finds the track
+    where only its neighbour is drawn.
     """
     if len(polys) < 2:
         return list(polys)
@@ -274,28 +280,38 @@ def collapse(polys, dist_m, cos_ref, bearing_tol_deg=20.0):
         coords, src = p["coords"], p["src"]
         n = len(coords)
         dirs = _dirs(coords, cos_ref)
-        shadow = [grid.shadow(coords[i][0], coords[i][1], dirs[i][0], dirs[i][1], dist_m, cos_tol)
-                  for i in range(n)]
+        hits = [grid.shadow(coords[i][0], coords[i][1], dirs[i][0], dirs[i][1], dist_m, cos_tol)
+                for i in range(n)]
         for i in range(n):
             if i == 0 or i == n - 1 or (round(coords[i][0], 7), round(coords[i][1], 7)) in junctions:
-                shadow[i] = None                      # protect endpoints and junctions
+                hits[i] = None                        # protect endpoints and junctions
+        shadow = [h[0] if h else None for h in hits]
 
-        for c, s in _drop_single_survivor_runs(coords, src, shadow):
+        # The piece that draws each vertex: its own emitted piece, or for a
+        # deleted vertex the survivor piece that shadowed it.
+        piece_of = [None] * n
+        for c, s, idx in _drop_single_survivor_runs(coords, src, shadow):
             if len(c) >= 2:
                 q = dict(p)
-                q["coords"], q["src"] = c, s
+                q["coords"], q["src"], q["absorbed"] = c, s, set()
+                for i in idx:
+                    piece_of[i] = len(out)
                 out.append(q)
+        for i in range(n):
+            if piece_of[i] is None and hits[i] is not None and hits[i][1] is not None:
+                piece_of[i] = hits[i][1]
+                out[piece_of[i]]["absorbed"].add(src[i])
 
         kept_dirs = _dirs(coords, cos_ref)
         for i in range(n):
-            grid.add(coords[i][0], coords[i][1], kept_dirs[i][0], kept_dirs[i][1], fid)
+            grid.add(coords[i][0], coords[i][1], kept_dirs[i][0], kept_dirs[i][1], fid, piece_of[i])
     return out
 
 
 def _drop_single_survivor_runs(coords, src, shadow):
-    """Yield kept (coords, src) segments, deleting only maximal runs of vertices
-    all shadowed by the same survivor id. A run shadowed by different ids over
-    its length is a corridor, not a duplicate, and is kept."""
+    """Yield kept (coords, src, vertex indices) segments, deleting only maximal
+    runs of vertices all shadowed by the same survivor id. A run shadowed by
+    different ids over its length is a corridor, not a duplicate, and is kept."""
     n = len(coords)
     delete = [False] * n
     i = 0
@@ -312,17 +328,18 @@ def _drop_single_survivor_runs(coords, src, shadow):
                 delete[k] = True
         i = j
 
-    seg_c, seg_s = [], []
+    seg_c, seg_s, seg_i = [], [], []
     for i in range(n):
         if delete[i]:
             if len(seg_c) >= 2:
-                yield seg_c, seg_s
-            seg_c, seg_s = [], []
+                yield seg_c, seg_s, seg_i
+            seg_c, seg_s, seg_i = [], [], []
         else:
             seg_c.append(coords[i])
             seg_s.append(src[i])
+            seg_i.append(i)
     if len(seg_c) >= 2:
-        yield seg_c, seg_s
+        yield seg_c, seg_s, seg_i
 
 
 def attribute_lod(values, lengths, min_len, no_grow=frozenset()):
