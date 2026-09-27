@@ -82,7 +82,10 @@ def seg_attrs(ch, cos_lat, id2props):
     a = {"speed_raw": [], "band": [], "tunnel": [], "bridge": [],
          "protection": [], "radio": [], "traffic": [], "colour": [], "length": []}
     for i in range(len(coords) - 1):
-        p = id2props.get(src[i], {})
+        # The segment's way is the one its end vertex came from: a way joining
+        # a chain contributes its vertices after the junction, and the junction
+        # vertex carries the previous way's id.
+        p = id2props.get(src[i + 1], {})
         sp = C.speed_of(p)
         a["speed_raw"].append(sp)
         a["band"].append(C.band_of(sp))
@@ -109,8 +112,10 @@ def segment_chain(ch, z, mean_lat):
         return []
     ml = Z.attr_min_len_m(z, mean_lat)
     band = G.attribute_lod(a["band"], ln, ml)
-    tun = G.attribute_lod(a["tunnel"], ln, ml)
-    brg = G.attribute_lod(a["bridge"], ln, ml)
+    # A structure never grows over the track beside it: a short at-grade gap
+    # between two bridges stays at grade, a short bridge still dissolves.
+    tun = G.attribute_lod(a["tunnel"], ln, ml, no_grow={True})
+    brg = G.attribute_lod(a["bridge"], ln, ml, no_grow={True})
     prot = G.attribute_lod(a["protection"], ln, ml)
     rad = G.attribute_lod(a["radio"], ln, ml)
     traf = G.attribute_lod(a["traffic"], ln, ml)
@@ -128,8 +133,11 @@ def segment_chain(ch, z, mean_lat):
             if raw[i] is not None:
                 w[raw[i]] = w.get(raw[i], 0.0) + ln[i]
         ms = max(w, key=w.get) if w else None           # dominant raw speed by length
+        # Vertex lo may be a junction tagged with the previous way; the
+        # sub-chain's first way, and so its osm_id, is its first segment's.
+        s = [src[lo + 1]] + src[lo + 1:hi + 2]
         subs.append({
-            "coords": c, "src": src[lo:hi + 2], "props": ch["props"], "maxspeed": ms,
+            "coords": c, "src": s, "props": ch["props"], "maxspeed": ms,
             "tunnel": tun[lo], "bridge": brg[lo], "protection": prot[lo],
             "radio": rad[lo], "traffic_mode": traf[lo], "colour": col[lo],
             "key": (ch["key"], band[lo], tun[lo], brg[lo],

@@ -325,13 +325,16 @@ def _drop_single_survivor_runs(coords, src, shadow):
         yield seg_c, seg_s
 
 
-def attribute_lod(values, lengths, min_len):
+def attribute_lod(values, lengths, min_len, no_grow=frozenset()):
     """Level-of-detail for an along-line attribute. `values`/`lengths` describe
     consecutive segments; merge any run of one value shorter than `min_len` into
     whichever neighbouring value covers more length, until every run is long
     enough or the line is one run. Returns a new per-segment value list. This is
     what lets a short 400 km/h blip vanish into the dominant band, or a short
-    tunnel into the at-grade line, at low zoom, and resolve as you zoom in."""
+    tunnel into the at-grade line, at low zoom, and resolve as you zoom in.
+
+    A run whose value is in `no_grow` never absorbs a neighbour: a short run
+    beside it merges the other way, or stays when it has no other neighbour."""
     n = len(values)
     if n == 0:
         return []
@@ -342,13 +345,18 @@ def attribute_lod(values, lengths, min_len):
             runs[-1][3] = i
         else:
             runs.append([v, l, i, i])
+
+    def targets(k):
+        left = runs[k - 1] if k > 0 and runs[k - 1][0] not in no_grow else None
+        right = runs[k + 1] if k + 1 < len(runs) and runs[k + 1][0] not in no_grow else None
+        return left, right
+
     while len(runs) > 1:
-        short = [k for k, r in enumerate(runs) if r[1] < min_len]
+        short = [k for k, r in enumerate(runs) if r[1] < min_len and targets(k) != (None, None)]
         if not short:
             break
         k = min(short, key=lambda k: runs[k][1])          # dissolve the shortest first
-        left = runs[k - 1] if k > 0 else None
-        right = runs[k + 1] if k + 1 < len(runs) else None
+        left, right = targets(k)
         into = left if (right is None or (left and left[1] >= right[1])) else right
         into[1] += runs[k][1]
         into[2] = min(into[2], runs[k][2])

@@ -2,6 +2,7 @@
 # but fetches live extracts (scripts/fetch_region.sh).
 #
 #   make selftest              gate 5 (merge honesty), no data needed
+#   make test                  unit tests for chain attributes, no data needed
 #   make build R=switzerland   build one sample region -> build/switzerland.pmtiles
 #   make verify R=switzerland  run gates 2-5 on it
 #   make join                  tile-join a few sample regions -> build/europe.pmtiles
@@ -13,10 +14,13 @@ SAMPLES := samples
 
 REGIONS := $(patsubst $(SAMPLES)/%-rail.osm.pbf,%,$(wildcard $(SAMPLES)/*-rail.osm.pbf))
 
-.PHONY: selftest build verify join all clean
+.PHONY: selftest test build verify join all clean
 
 selftest:
 	python3 pipeline/verify.py --self-test
+
+test:
+	python3 -m unittest discover -s pipeline -p 'test_*.py'
 
 $(BUILD):
 	mkdir -p $(BUILD)
