@@ -2,7 +2,8 @@
 """
 Build one region's PMTiles pyramid (steps 2-5 of the pipeline).
 
-  load    osmium export the filtered .pbf to GeoJSON-seq linestrings
+  load    osmium export the filtered .pbf to GeoJSON-seq linestrings, plus
+          line colours from the route relations kept beside them
   chain   join non-service ways end-to-end for z2-z11 (once; rule 3)
   per z   simplify at the band tolerance, collapse parallel track, emit GeoJSON
   tile    one tippecanoe pass per zoom (-Z z -z z), then tile-join
@@ -22,6 +23,7 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import classify as C
 import geometry as G
+import routes
 import zoomparams as Z
 
 
@@ -63,6 +65,11 @@ def load(pbf):
             lat_sum += c[0][1]
             lat_n += 1
     os.unlink(tmp)
+    route_colours = routes.load(pbf)
+    for w in ways:
+        rgb = route_colours.get(w["id"])
+        if rgb is not None:
+            w["props"][C.ROUTE_COLOUR] = rgb
     return ways, (lat_sum / lat_n if lat_n else 0.0)
 
 

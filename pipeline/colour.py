@@ -76,3 +76,24 @@ def parse(raw):
             h = "".join(c * 2 for c in h)
         return int(h, 16)
     return CSS.get(v)
+
+
+def _lab(rgb):
+    def lin(v):
+        v /= 255
+        return ((v + 0.055) / 1.055) ** 2.4 if v > 0.04045 else v / 12.92
+    r, g, b = lin((rgb >> 16) & 0xFF), lin((rgb >> 8) & 0xFF), lin(rgb & 0xFF)
+    x = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047
+    y = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883
+
+    def f(t):
+        return t ** (1 / 3) if t > 0.008856 else 7.787 * t + 16 / 116
+    return 116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z))
+
+
+def delta_e(a, b):
+    """Perceived difference of two RGB integers (CIE76): about 2 is barely
+    visible, S41 and S42 in Berlin are 18 apart, blue against orange over 100."""
+    la, lb = _lab(a), _lab(b)
+    return sum((p - q) ** 2 for p, q in zip(la, lb)) ** 0.5

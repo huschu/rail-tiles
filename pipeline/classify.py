@@ -194,8 +194,14 @@ def traffic_mode_of(p):
     return _get(p, "railway:traffic_mode")
 
 
+# Set by build_region from routes.way_colours; never an OSM key.
+ROUTE_COLOUR = "_route_colour"
+
+
 def colour_of(p):
-    return colour.parse(_get(p, "colour") or _get(p, "color"))
+    """The way's own colour tag, else the colour of the one service on it."""
+    own = colour.parse(_get(p, "colour") or _get(p, "color"))
+    return own if own is not None else p.get(ROUTE_COLOUR)
 
 
 def protection_of(p):

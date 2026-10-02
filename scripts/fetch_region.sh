@@ -57,11 +57,21 @@ done
 osmium fileinfo -e -g data.timestamp.last "$RAW" > "$OUT/$NAME.timestamp" 2>/dev/null || true
 echo "[$NAME] extract timestamp: $(cat "$OUT/$NAME.timestamp" 2>/dev/null)"
 
-echo "[$NAME] filtering to railway ways..."
-if nice -n 10 osmium tags-filter "$RAW" "${FILTER[@]}" -o "$FILT" --overwrite; then
+echo "[$NAME] filtering to railway ways and route relations..."
+# Route relations carry the line colours (pipeline/routes.py). -R keeps them
+# without their members: only their tags and member way ids are read, and the
+# members would drag in platforms and stops. -R cannot apply to the ways, which
+# need their nodes, hence two passes merged into one extract.
+WAYS="$OUT/$NAME-ways.osm.pbf"
+ROUTES="$OUT/$NAME-routes.osm.pbf"
+if nice -n 10 osmium tags-filter "$RAW" "${FILTER[@]}" -o "$WAYS" --overwrite \
+   && nice -n 10 osmium tags-filter "$RAW" "r/route=train,subway,light_rail,tram,monorail" \
+        -R -o "$ROUTES" --overwrite \
+   && osmium merge "$WAYS" "$ROUTES" -o "$FILT" --overwrite; then
   echo "[$NAME] filtered -> $(du -h "$FILT" | cut -f1)"
+  rm -f "$WAYS" "$ROUTES"
 else
-  echo "[$NAME] FILTER FAILED"; rm -f "$RAW"; exit 1
+  echo "[$NAME] FILTER FAILED"; rm -f "$RAW" "$WAYS" "$ROUTES"; exit 1
 fi
 rm -f "$RAW"
 echo "[$NAME] raw deleted"
