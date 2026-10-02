@@ -5,7 +5,7 @@ Most line colours sit on the route relation (U1, RE 7, M10), not on the track.
 A way takes a colour when every coloured service over it shows about the same
 colour: one service, lines sharing a colour (M10 and 12), or near shades such
 as the Ring's S41 and S42. Services without a colour do not count. A track
-shared by clearly different colours stays uncoloured rather than showing one
+shared by clearly different colours is marked SHARED rather than showing one
 of them at random. A colour tag on the way itself always wins.
 
 A service is a route type, network and ref (or name): the two directions of
@@ -21,6 +21,11 @@ ROUTES = ("train", "subway", "light_rail", "tram", "monorail")
 
 # Colours closer than this read as one line on the map.
 SIMILAR = 25
+
+# Stands in for a colour on track shared by clearly different lines. It rides
+# through the per-segment attributes like a colour, so chains split where a
+# shared stretch begins; the tiles carry it as `colour_shared`.
+SHARED = -1
 
 _ESC = re.compile(r"%([0-9a-fA-F]+)%")
 
@@ -51,7 +56,7 @@ def parse_opl(lines):
 
 
 def way_colours(relations):
-    """{way id: 24-bit RGB} for ways whose coloured services agree on a colour."""
+    """{way id: 24-bit RGB, or SHARED} for ways with at least one coloured service."""
     services = {}                       # service -> set of parsed colours
     on_way = {}                         # way -> set of services
     for tags, ways in relations:
@@ -79,6 +84,7 @@ def way_colours(relations):
             continue
         rgbs = [rgb for _, rgb in coloured]
         if any(colour.delta_e(a, b) >= SIMILAR for a in rgbs for b in rgbs):
+            out[w] = SHARED
             continue
         # The colour most of the services use; ties go to the first service in
         # sort order, so every way of the Ring shows the same one.

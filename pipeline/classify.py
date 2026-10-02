@@ -12,6 +12,7 @@ planned electrification, speed, gauge and protection while lifecycle still marks
 it as not in service.
 """
 import colour
+import routes
 import protection
 
 # MUST stay identical to SpeedBand.bands in swift-app/SwiftApp/Style.swift.
@@ -270,7 +271,9 @@ def emit_props(p, maxspeed, osm_id=None, src=None, tunnel=False, bridge=False,
         # label the real gauges. Like gauge_mm, this is the representative
         # member's value on a merged chain (render_key keys on gauge_class only).
         rec["gauge_mm_list"] = ";".join(gs)
-    if colour is not None:
+    if colour == routes.SHARED:
+        rec["colour_shared"] = True
+    elif colour is not None:
         rec["colour"] = colour
     if radio:
         rec["radio"] = radio

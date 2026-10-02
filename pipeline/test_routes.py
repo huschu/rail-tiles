@@ -32,7 +32,7 @@ class RouteColourTests(unittest.TestCase):
             rel(["w1", "w2"], route="train", network="VBB", ref="S3", colour="#0066AD"),
             rel(["w2"], route="train", network="VBB", ref="S5", colour="#EB7405"),
         ])
-        self.assertEqual(out, {"w1": 0x0066AD})
+        self.assertEqual(out, {"w1": 0x0066AD, "w2": R.SHARED})
 
     def test_services_without_a_colour_do_not_count(self):
         out = R.way_colours([
@@ -55,12 +55,17 @@ class RouteColourTests(unittest.TestCase):
         ]
         self.assertEqual(R.way_colours(ring), {"w1": 0x9F4C37, "w2": 0x9F4C37})
 
-    def test_clearly_different_shades_stay_uncoloured(self):
+    def test_clearly_different_shades_are_marked_shared(self):
         out = R.way_colours([
             rel(["w1"], route="light_rail", network="VBB", ref="S41", colour="#9F4C37"),
             rel(["w1"], route="light_rail", network="VBB", ref="S46", colour="#BA8A4D"),
         ])
-        self.assertEqual(out, {})
+        self.assertEqual(out, {"w1": R.SHARED})
+
+    def test_shared_track_is_emitted_as_a_flag_not_a_colour(self):
+        rec = C.emit_props({"railway": "rail"}, None, colour=R.SHARED)
+        self.assertTrue(rec["colour_shared"])
+        self.assertNotIn("colour", rec)
 
     def test_the_colour_most_services_use_wins(self):
         out = R.way_colours([
