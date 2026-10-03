@@ -197,6 +197,8 @@ def traffic_mode_of(p):
 
 # Set by build_region from routes.way_colours; never an OSM key.
 ROUTE_COLOUR = "_route_colour"
+# Set by build_region from routes.way_routes; never an OSM key.
+ROUTE_SET = "_route_set"
 
 
 def colour_of(p):

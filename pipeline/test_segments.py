@@ -89,5 +89,27 @@ class StructureLevelOfDetail(unittest.TestCase):
         self.assertFalse(any(s["bridge"] for s in subs))
 
 
+
+
+class RouteSplit(unittest.TestCase):
+    """A chain that leaves a route at a junction must split there, so a
+    highlighted route never lights up the track it turned off from."""
+
+    def test_chain_splits_where_the_route_set_changes(self):
+        on = frozenset({"r1"})
+        ways = [way("wA", 0, 3000, **{C.ROUTE_SET: on}), way("wB", 3000, 3020, **{C.ROUTE_SET: on}),
+                way("wC", 3020, 9000)]
+        subs = segment_chain(chained(ways), 7, LAT)
+        self.assertEqual([set(s["src"]) for s in subs], [{"wA", "wB"}, {"wC"}])
+
+    def test_a_short_run_on_another_route_is_not_dissolved(self):
+        # At z5 a 20 m run is far below a pixel; dissolving it would put wB in
+        # the long neighbours' src, and route r2 would light them up.
+        ways = [way("wA", 0, 5000), way("wB", 5000, 5020, **{C.ROUTE_SET: frozenset({"r2"})}),
+                way("wC", 5020, 10000)]
+        subs = segment_chain(chained(ways), 5, LAT)
+        self.assertEqual([set(s["src"]) for s in subs], [{"wA"}, {"wB"}, {"wC"}])
+
+
 if __name__ == "__main__":
     unittest.main()

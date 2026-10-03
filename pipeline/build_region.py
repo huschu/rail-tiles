@@ -65,11 +65,14 @@ def load(pbf):
             lat_sum += c[0][1]
             lat_n += 1
     os.unlink(tmp)
-    route_colours = routes.load(pbf)
+    route_colours, route_sets = routes.load(pbf)
     for w in ways:
         rgb = route_colours.get(w["id"])
         if rgb is not None:
             w["props"][C.ROUTE_COLOUR] = rgb
+        rs = route_sets.get(w["id"])
+        if rs:
+            w["props"][C.ROUTE_SET] = rs
     return ways, (lat_sum / lat_n if lat_n else 0.0)
 
 
@@ -87,7 +90,8 @@ def seg_attrs(ch, cos_lat, id2props):
     coords, src = ch["coords"], ch["src"]
     K = 111320.0
     a = {"speed_raw": [], "band": [], "tunnel": [], "bridge": [],
-         "protection": [], "radio": [], "traffic": [], "colour": [], "length": []}
+         "protection": [], "radio": [], "traffic": [], "colour": [], "routes": [],
+         "length": []}
     for i in range(len(coords) - 1):
         # The segment's way is the one its end vertex came from: a way joining
         # a chain contributes its vertices after the junction, and the junction
@@ -102,6 +106,7 @@ def seg_attrs(ch, cos_lat, id2props):
         a["radio"].append(C.radio_of(p))
         a["traffic"].append(C.traffic_mode_of(p))
         a["colour"].append(C.colour_of(p))
+        a["routes"].append(p.get(C.ROUTE_SET, frozenset()))
         dx = (coords[i + 1][0] - coords[i][0]) * K * cos_lat
         dy = (coords[i + 1][1] - coords[i][1]) * K
         a["length"].append((dx * dx + dy * dy) ** 0.5)
@@ -127,6 +132,9 @@ def segment_chain(ch, z, mean_lat):
     rad = G.attribute_lod(a["radio"], ln, ml)
     traf = G.attribute_lod(a["traffic"], ln, ml)
     col = G.attribute_lod(a["colour"], ln, ml)
+    # No LOD: a dissolved run's ways would stay in its neighbour's src, and a
+    # route over just that run would light up the whole neighbour.
+    rts = a["routes"]
     coords, src, raw = ch["coords"], ch["src"], a["speed_raw"]
 
     subs = []
@@ -153,9 +161,9 @@ def segment_chain(ch, z, mean_lat):
 
     lo = 0
     for i in range(1, n_seg):
-        if (band[i], tun[i], brg[i], prot[i], rad[i], traf[i], col[i]) != \
+        if (band[i], tun[i], brg[i], prot[i], rad[i], traf[i], col[i], rts[i]) != \
            (band[i - 1], tun[i - 1], brg[i - 1], prot[i - 1], rad[i - 1], traf[i - 1],
-            col[i - 1]):
+            col[i - 1], rts[i - 1]):
             cut(lo, i - 1)
             lo = i
     cut(lo, n_seg - 1)

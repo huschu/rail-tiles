@@ -105,10 +105,20 @@ class RouteColourTests(unittest.TestCase):
         line = ("r42 v3 dV c1 t2026-01-01T00:00:00Z i1 uX "
                 "Troute=subway,ref=U1,name=U1%20%Uhlandstra%df%e,colour=%23%7DAD4C "
                 "Mn5@stop,w10@,w11@forward,r7@")
-        [(tags, ways)] = R.parse_opl([line])
+        [(tags, ways, rid)] = R.parse_opl([line])
         self.assertEqual(tags["name"], "U1 Uhlandstraße")
         self.assertEqual(tags["colour"], "#7DAD4C")
         self.assertEqual(ways, ["w10", "w11"])
+        self.assertEqual(rid, "42")
+
+    def test_route_sets_cover_services_and_lines_but_not_other_relations(self):
+        out = R.way_routes([
+            (dict(route="train", ref="RE3"), ["w1", "w2"], "1"),
+            (dict(route="railway", ref="6132"), ["w2", "w3"], "2"),
+            (dict(route="bus", ref="100"), ["w3"], "3"),
+        ])
+        self.assertEqual(out, {"w1": frozenset({"1"}), "w2": frozenset({"1", "2"}),
+                               "w3": frozenset({"2"})})
 
 
 if __name__ == "__main__":

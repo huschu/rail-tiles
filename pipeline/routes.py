@@ -11,6 +11,12 @@ of them at random. A colour tag on the way itself always wins.
 A service is a route type, network and ref (or name): the two directions of
 one line are separate relations but one service, while S1 in two cities is
 two services.
+
+The app highlights a line or service by matching its member ways against the
+ways a tile feature was built from. Below z12 a feature is a chain of many
+ways, so chains are also split where the set of relations over the track
+changes (way_routes): otherwise one member way lights up the whole chain,
+far past where the route turns off.
 """
 import re
 import subprocess
@@ -18,6 +24,10 @@ import subprocess
 import colour
 
 ROUTES = ("train", "subway", "light_rail", "tram", "monorail")
+
+# Every relation the app can highlight: its services plus the infrastructure
+# lines (route=railway, tracks). Must match the relations fetch_region.sh keeps.
+HIGHLIGHTED = ROUTES + ("funicular", "railway", "tracks")
 
 # Colours closer than this read as one line on the map.
 SIMILAR = 25
@@ -35,11 +45,12 @@ def _unescape(s):
 
 
 def parse_opl(lines):
-    """Relations from osmium OPL as (tags, way ids "w<id>")."""
+    """Relations from osmium OPL as (tags, way ids "w<id>", relation id)."""
     out = []
     for line in lines:
         if not line.startswith("r"):
             continue
+        rid = line[1:].split(" ", 1)[0]
         tags, ways = {}, []
         for field in line.rstrip("\n").split(" "):
             if field.startswith("T") and len(field) > 1:
@@ -51,7 +62,7 @@ def parse_opl(lines):
                     ref = m.partition("@")[0]
                     if ref.startswith("w"):
                         ways.append(ref)
-        out.append((tags, ways))
+        out.append((tags, ways, rid))
     return out
 
 
@@ -59,7 +70,7 @@ def way_colours(relations):
     """{way id: 24-bit RGB, or SHARED} for ways with at least one coloured service."""
     services = {}                       # service -> set of parsed colours
     on_way = {}                         # way -> set of services
-    for tags, ways in relations:
+    for tags, ways, *_ in relations:
         route = tags.get("route")
         if route not in ROUTES:
             continue
@@ -92,8 +103,22 @@ def way_colours(relations):
     return out
 
 
+def way_routes(relations):
+    """{way id: frozenset of the highlighted relation ids over it}. Ways on no
+    such relation are absent."""
+    out = {}
+    for tags, ways, rid in relations:
+        if tags.get("route") not in HIGHLIGHTED:
+            continue
+        for w in ways:
+            out.setdefault(w, set()).add(rid)
+    return {w: frozenset(ids) for w, ids in out.items()}
+
+
 def load(pbf):
-    """Route colours for the relations kept in the filtered extract."""
+    """Route colours and route membership for the relations kept in the
+    filtered extract."""
     r = subprocess.run(["osmium", "cat", pbf, "-t", "relation", "-f", "opl", "-o", "-"],
                        check=True, capture_output=True, text=True)
-    return way_colours(parse_opl(r.stdout.splitlines()))
+    relations = parse_opl(r.stdout.splitlines())
+    return way_colours(relations), way_routes(relations)
