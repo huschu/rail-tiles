@@ -15,7 +15,8 @@ cache (see [Incremental updates](#incremental-updates)).
 | `pipeline/` | classify tags → typed fields, chain ways, collapse parallel track, tile per zoom, verify |
 | `pipeline/join_planet.py` | group region tilesets by continent and tile-join each |
 | `pipeline/diff_tiles.py` | per-tile content hashes and the change list between two builds |
-| `pipeline/manifest.py` | emit `manifest.json` (archives, bounds, `builds` chain) |
+| `pipeline/night.py` | decide the night trains across regions and write their list |
+| `pipeline/manifest.py` | emit `manifest.json` (archives, bounds, `builds` chain, night-train list) |
 | `scripts/fetch_region.sh` | download an extract (Geofabrik → OSM-France fallback), filter to railway ways |
 | `.github/workflows/build-tiles.yml` | per-region matrix build → per-continent join → change lists → publish |
 | `samples/` | a couple of pre-filtered extracts for local testing (switzerland, kenya) |
@@ -46,6 +47,26 @@ cache (see [Incremental updates](#incremental-updates)).
 - **8 continent archives, ~3.6 GB total** (a single planet file exceeds the 2 GB
   per-asset limit). A client loads only the archives overlapping the viewport and
   only the tiles it views.
+
+## Night trains
+
+Each build publishes `night-trains-<tag>.json.gz` beside the archives, and the
+manifest names it under `nightTrains`. It lists the `route=train` relations
+that count as night trains: those with `sleeping_car=yes` or `couchette=yes`
+at any length, and those whose `service` includes `night` when the route is at
+least 300 km long. The length check keeps out local trains that run at night,
+such as NS Nachtnet. Each entry has the relation's tags, member ways, stop
+nodes and length in km.
+
+The tiles do not change. The app matches the member ways against the `osm_id`,
+`src` and `absorbed` ways the tiles already carry.
+
+Night trains cross borders, so no region can measure one alone. Each region
+build writes `<region>.night.json` with its candidate relations and the length
+of every member way it holds, and the join job decides from all of them.
+Geofabrik extracts overlap at borders, so way lengths are united by way id
+rather than summed per region. A region restored from a cache older than the
+sidecars contributes nothing until it rebuilds, and the join warns about it.
 
 ## Build
 

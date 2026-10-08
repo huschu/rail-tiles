@@ -44,25 +44,37 @@ def _unescape(s):
     return _ESC.sub(lambda m: chr(int(m.group(1), 16)), s)
 
 
+def parse_relation(line):
+    """One osmium OPL relation line as {rid, version, tags, ways ("w<id>"),
+    nodes [(id, role)]}, or None for any other line."""
+    if not line.startswith("r"):
+        return None
+    rid = line[1:].split(" ", 1)[0]
+    version, tags, ways, nodes = 0, {}, [], []
+    for field in line.rstrip("\n").split(" "):
+        if field.startswith("v") and field[1:].isdigit():
+            version = int(field[1:])
+        elif field.startswith("T") and len(field) > 1:
+            for kv in field[1:].split(","):
+                k, _, v = kv.partition("=")
+                tags[_unescape(k)] = _unescape(v)
+        elif field.startswith("M") and len(field) > 1:
+            for m in field[1:].split(","):
+                ref, _, role = m.partition("@")
+                if ref.startswith("w"):
+                    ways.append(ref)
+                elif ref.startswith("n"):
+                    nodes.append((ref[1:], _unescape(role)))
+    return {"rid": rid, "version": version, "tags": tags, "ways": ways, "nodes": nodes}
+
+
 def parse_opl(lines):
     """Relations from osmium OPL as (tags, way ids "w<id>", relation id)."""
     out = []
     for line in lines:
-        if not line.startswith("r"):
-            continue
-        rid = line[1:].split(" ", 1)[0]
-        tags, ways = {}, []
-        for field in line.rstrip("\n").split(" "):
-            if field.startswith("T") and len(field) > 1:
-                for kv in field[1:].split(","):
-                    k, _, v = kv.partition("=")
-                    tags[_unescape(k)] = _unescape(v)
-            elif field.startswith("M") and len(field) > 1:
-                for m in field[1:].split(","):
-                    ref = m.partition("@")[0]
-                    if ref.startswith("w"):
-                        ways.append(ref)
-        out.append((tags, ways, rid))
+        r = parse_relation(line)
+        if r is not None:
+            out.append((r["tags"], r["ways"], r["rid"]))
     return out
 
 
@@ -115,10 +127,15 @@ def way_routes(relations):
     return {w: frozenset(ids) for w, ids in out.items()}
 
 
-def load(pbf):
-    """Route colours and route membership for the relations kept in the
-    filtered extract."""
+def read_opl(pbf):
+    """The relation lines of the filtered extract, as osmium OPL."""
     r = subprocess.run(["osmium", "cat", pbf, "-t", "relation", "-f", "opl", "-o", "-"],
                        check=True, capture_output=True, text=True)
-    relations = parse_opl(r.stdout.splitlines())
+    return r.stdout.splitlines()
+
+
+def load(lines):
+    """Route colours and route membership for the relations kept in the
+    filtered extract."""
+    relations = parse_opl(lines)
     return way_colours(relations), way_routes(relations)

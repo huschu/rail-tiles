@@ -8,7 +8,9 @@ Build one region's PMTiles pyramid (steps 2-5 of the pipeline).
   per z   simplify at the band tolerance, collapse parallel track, emit GeoJSON
   tile    one tippecanoe pass per zoom (-Z z -z z), then tile-join
 
-Usage: build_region.py NAME OUT.pmtiles IN-rail.osm.pbf [--keep-tmp DIR]
+Usage: build_region.py NAME OUT.pmtiles IN-rail.osm.pbf [--night OUT.json] [--keep-tmp DIR]
+
+--night writes the region's night-train candidates for the join (night.py).
 
 Every tippecanoe call passes --no-feature-limit --no-tile-size-limit: nothing
 is ever dropped (rule 1). Verified locally that these keep feature counts whole.
@@ -23,6 +25,7 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import classify as C
 import geometry as G
+import night
 import routes
 import zoomparams as Z
 
@@ -36,7 +39,8 @@ def osmium_export(pbf, out):
 
 
 def load(pbf):
-    """Return list of ways {id, props, coords} and the mean latitude."""
+    """Return list of ways {id, props, coords}, the mean latitude and the
+    route relations as OSM OPL lines."""
     with tempfile.NamedTemporaryFile(suffix=".geojsonseq", delete=False) as t:
         tmp = t.name
     osmium_export(pbf, tmp)
@@ -65,7 +69,8 @@ def load(pbf):
             lat_sum += c[0][1]
             lat_n += 1
     os.unlink(tmp)
-    route_colours, route_sets = routes.load(pbf)
+    opl = routes.read_opl(pbf)
+    route_colours, route_sets = routes.load(opl)
     for w in ways:
         rgb = route_colours.get(w["id"])
         if rgb is not None:
@@ -73,7 +78,7 @@ def load(pbf):
         rs = route_sets.get(w["id"])
         if rs:
             w["props"][C.ROUTE_SET] = rs
-    return ways, (lat_sum / lat_n if lat_n else 0.0)
+    return ways, (lat_sum / lat_n if lat_n else 0.0), opl
 
 
 def feature(coords, props_rec):
@@ -251,10 +256,16 @@ def main():
     ap.add_argument("name")
     ap.add_argument("out")
     ap.add_argument("pbf")
+    ap.add_argument("--night")
     ap.add_argument("--keep-tmp")
     args = ap.parse_args()
 
-    ways, mean_lat = load(args.pbf)
+    ways, mean_lat, opl = load(args.pbf)
+    if args.night:
+        sc = night.sidecar(opl, {w["id"]: w["coords"] for w in ways})
+        with open(args.night, "w") as f:
+            json.dump(sc, f, separators=(",", ":"))
+        print(f"[{args.name}] {len(sc['relations'])} night-train candidates", file=sys.stderr)
     nonservice = [w for w in ways if not C.is_service(w["props"])]
     print(f"[{args.name}] {len(ways):,} ways ({len(nonservice):,} non-service), "
           f"mean lat {mean_lat:.1f}", file=sys.stderr)

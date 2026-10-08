@@ -11,6 +11,8 @@ PMTiles header, so the client loads only the archives overlapping the viewport.
   schemaVersion  bump on any attribute-schema change -> client hard-purges
   buildId        fresh data, same schema -> client soft-purges
   osmTimestamp   the source extracts' own timestamp, shown as "data as of"
+  nightTrains    {url, bytes} of the gzipped night-train list (night.py),
+                 when the build produced one
   builds         recent dated tags, oldest->newest, that carry a per-tile change
                  list. A client soft-purge walks the tags after its last-seen one
                  and applies each <region>-<tag>.changed instead of wiping the
@@ -22,7 +24,7 @@ and the client derives that URL from baseUrl, the builds tags, and each region.
 
 Usage: manifest.py --archives-dir DIR --tag TAG --base-url URL \
                    --build-id ISO --osm-timestamp ISO \
-                   [--recent-builds t1,t2,...] --out manifest.json
+                   [--recent-builds t1,t2,...] [--night-trains FILE] --out manifest.json
 """
 import argparse
 import glob
@@ -66,6 +68,7 @@ def main():
     ap.add_argument("--recent-builds", default="",
                     help="comma-separated dated tags, oldest->newest, that carry "
                          "a change list (the last 26 builds incl. this one)")
+    ap.add_argument("--night-trains")
     ap.add_argument("--out", default="manifest.json")
     args = ap.parse_args()
 
@@ -96,6 +99,10 @@ def main():
         "builds": builds,
         "archives": archives,
     }
+    if args.night_trains and os.path.exists(args.night_trains):
+        fn = os.path.basename(args.night_trains)
+        manifest["nightTrains"] = {"url": f"{args.base_url}/{args.tag}/{fn}",
+                                   "bytes": os.path.getsize(args.night_trains)}
     with open(args.out, "w") as f:
         json.dump(manifest, f, indent=2)
     print(json.dumps(manifest, indent=2), file=sys.stderr)

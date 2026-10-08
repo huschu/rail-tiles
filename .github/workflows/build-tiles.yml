@@ -95,8 +95,9 @@ jobs:
           # build is unavailable, so a dropped region is stale, never blank.
           path: |
             work/${{ matrix.region.name }}.pmtiles
+            work/${{ matrix.region.name }}.night.json
             work/${{ matrix.region.name }}.timestamp
-          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/colour.py', 'pipeline/routes.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py', 'scripts/fetch_region.sh') }}
+          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/colour.py', 'pipeline/routes.py', 'pipeline/night.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py', 'scripts/fetch_region.sh') }}
           restore-keys: |
             tiles-${{ matrix.region.name }}-
 
@@ -119,17 +120,19 @@ jobs:
         run: |
           set -uo pipefail
           NEW="work/$NAME.new.pmtiles"
+          NIGHT="work/$NAME.night.new.json"
           if [ ! -f "work/$NAME-rail.osm.pbf" ]; then
             bash scripts/fetch_region.sh "$NAME" "$PATHREL" work || true
           fi
           if [ -f "work/$NAME-rail.osm.pbf" ]; then
-            if python3 pipeline/build_region.py "$NAME" "$NEW" "work/$NAME-rail.osm.pbf"; then
+            if python3 pipeline/build_region.py "$NAME" "$NEW" "work/$NAME-rail.osm.pbf" --night "$NIGHT"; then
               if [ ! -f "$NEW" ]; then
-                rm -f "work/$NAME.pmtiles"          # railless region: legitimately empty
+                rm -f "work/$NAME.pmtiles" "work/$NAME.night.json" "$NIGHT"   # railless region: legitimately empty
                 echo "$NAME: no railways"; exit 0
               fi
               if python3 pipeline/verify.py "$NEW"; then
                 mv "$NEW" "work/$NAME.pmtiles"
+                mv "$NIGHT" "work/$NAME.night.json"
                 echo "built=true" >> "$GITHUB_OUTPUT"
                 exit 0
               fi
@@ -137,7 +140,7 @@ jobs:
             else
               echo "::warning::$NAME: build failed on fresh extract"
             fi
-            rm -f "$NEW"
+            rm -f "$NEW" "$NIGHT"
           else
             echo "::warning::$NAME: download failed on both mirrors"
           fi
@@ -152,8 +155,9 @@ jobs:
         with:
           path: |
             work/${{ matrix.region.name }}.pmtiles
+            work/${{ matrix.region.name }}.night.json
             work/${{ matrix.region.name }}.timestamp
-          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/colour.py', 'pipeline/routes.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py', 'scripts/fetch_region.sh') }}
+          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/colour.py', 'pipeline/routes.py', 'pipeline/night.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py', 'scripts/fetch_region.sh') }}
 
       - name: Upload region tileset          # skipped only when the region hard-failed
         if: success()
@@ -162,6 +166,7 @@ jobs:
           name: region-${{ matrix.region.name }}
           path: |
             work/${{ matrix.region.name }}.pmtiles
+            work/${{ matrix.region.name }}.night.json
             work/${{ matrix.region.name }}.timestamp
           if-no-files-found: ignore
           retention-days: 3
@@ -216,6 +221,14 @@ jobs:
           OSM_TS=$(echo "$RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin)['osm_ts'])")
           echo "osm_ts=${OSM_TS:-${{ needs.prepare.outputs.build_id }}}" >> "$GITHUB_OUTPUT"
           ls -la out
+
+      # Night trains need each relation's length across every region, so they
+      # are decided here from the per-region sidecars (pipeline/night.py).
+      - name: Night trains
+        run: |
+          OUT="out/night-trains-${{ needs.prepare.outputs.tag }}.json.gz"
+          python3 pipeline/night.py join regions "$OUT" \
+            || { rm -f "$OUT"; echo "::warning::night trains failed; the manifest omits them"; }
 
       # Per-tile change lists. A weekly rebuild changes <1% of tiles, so instead
       # of the client purging its whole cache on a buildId bump, we publish the
@@ -282,6 +295,7 @@ jobs:
             --build-id "${{ needs.prepare.outputs.build_id }}" \
             --osm-timestamp "${{ steps.join.outputs.osm_ts }}" \
             --recent-builds "${{ steps.diffs.outputs.builds }}" \
+            --night-trains "out/night-trains-${{ needs.prepare.outputs.tag }}.json.gz" \
             --out manifest.json
           cat manifest.json
 
@@ -297,7 +311,7 @@ jobs:
           gh release view "$TAG" >/dev/null 2>&1 \
             || gh release create "$TAG" --title "Planet tiles $TAG" \
                  --notes "OSM railway PMTiles pyramid z2-z16, per-continent. Source as of ${{ steps.join.outputs.osm_ts }}."
-          for f in out/*.pmtiles out/*.hashes out/*.changed; do
+          for f in out/*.pmtiles out/*.hashes out/*.changed out/night-trains-*.json.gz; do
             [ -e "$f" ] || continue
             gh release upload "$TAG" "$f" --clobber
           done
@@ -319,5 +333,6 @@ jobs:
           name: smoke-build
           path: |
             out/*.pmtiles
+            out/night-trains-*.json.gz
             manifest.json
           retention-days: 3
