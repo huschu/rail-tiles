@@ -97,7 +97,7 @@ jobs:
             work/${{ matrix.region.name }}.pmtiles
             work/${{ matrix.region.name }}.night.json
             work/${{ matrix.region.name }}.timestamp
-          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/colour.py', 'pipeline/routes.py', 'pipeline/night.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py', 'scripts/fetch_region.sh') }}
+          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/colour.py', 'pipeline/routes.py', 'pipeline/stations.py', 'pipeline/night.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py', 'scripts/fetch_region.sh') }}
           restore-keys: |
             tiles-${{ matrix.region.name }}-
 
@@ -157,7 +157,7 @@ jobs:
             work/${{ matrix.region.name }}.pmtiles
             work/${{ matrix.region.name }}.night.json
             work/${{ matrix.region.name }}.timestamp
-          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/colour.py', 'pipeline/routes.py', 'pipeline/night.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py', 'scripts/fetch_region.sh') }}
+          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/colour.py', 'pipeline/routes.py', 'pipeline/stations.py', 'pipeline/night.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py', 'scripts/fetch_region.sh') }}
 
       - name: Upload region tileset          # skipped only when the region hard-failed
         if: success()

@@ -22,6 +22,10 @@ FILTER=(
   "w/railway=rail,light_rail,narrow_gauge,monorail,subway,tram,funicular,construction,proposed,disused,abandoned,razed,preserved"
   w/construction:railway w/proposed:railway w/disused:railway
   w/abandoned:railway w/razed:railway w/preserved:railway w/railway:preserved
+  # Stations and the stop positions routes name (pipeline/stations.py). Station
+  # areas keep their nodes so they get a centroid.
+  n/railway=station,halt,stop n/public_transport=station,stop_position
+  w/railway=station w/public_transport=station
 )
 
 MIRRORS=(
@@ -60,7 +64,8 @@ echo "[$NAME] extract timestamp: $(cat "$OUT/$NAME.timestamp" 2>/dev/null)"
 echo "[$NAME] filtering to railway ways and route relations..."
 # Route relations carry the line colours and the route membership chains split
 # on (pipeline/routes.py): services and the lines (route=railway, tracks)
-# the app highlights. -R keeps them
+# the app highlights. Stop areas tie a station to the stops routes name
+# (pipeline/stations.py). -R keeps them
 # without their members: only their tags and member way ids are read, and the
 # members would drag in platforms and stops. -R cannot apply to the ways, which
 # need their nodes, hence two passes merged into one extract.
@@ -68,7 +73,7 @@ WAYS="$OUT/$NAME-ways.osm.pbf"
 ROUTES="$OUT/$NAME-routes.osm.pbf"
 if nice -n 10 osmium tags-filter "$RAW" "${FILTER[@]}" -o "$WAYS" --overwrite \
    && nice -n 10 osmium tags-filter "$RAW" "r/route=train,subway,light_rail,tram,monorail,funicular,railway,tracks" \
-        -R -o "$ROUTES" --overwrite \
+        r/public_transport=stop_area -R -o "$ROUTES" --overwrite \
    && osmium merge "$WAYS" "$ROUTES" -o "$FILT" --overwrite; then
   echo "[$NAME] filtered -> $(du -h "$FILT" | cut -f1)"
   rm -f "$WAYS" "$ROUTES"

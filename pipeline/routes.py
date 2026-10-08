@@ -46,11 +46,12 @@ def _unescape(s):
 
 def parse_relation(line):
     """One osmium OPL relation line as {rid, version, tags, ways ("w<id>"),
-    nodes [(id, role)]}, or None for any other line."""
+    nodes [(id, role)], members [("n<id>" | "w<id>" | "r<id>", role)]}, or
+    None for any other line."""
     if not line.startswith("r"):
         return None
     rid = line[1:].split(" ", 1)[0]
-    version, tags, ways, nodes = 0, {}, [], []
+    version, tags, ways, nodes, members = 0, {}, [], [], []
     for field in line.rstrip("\n").split(" "):
         if field.startswith("v") and field[1:].isdigit():
             version = int(field[1:])
@@ -61,11 +62,13 @@ def parse_relation(line):
         elif field.startswith("M") and len(field) > 1:
             for m in field[1:].split(","):
                 ref, _, role = m.partition("@")
+                members.append((ref, _unescape(role)))
                 if ref.startswith("w"):
                     ways.append(ref)
                 elif ref.startswith("n"):
                     nodes.append((ref[1:], _unescape(role)))
-    return {"rid": rid, "version": version, "tags": tags, "ways": ways, "nodes": nodes}
+    return {"rid": rid, "version": version, "tags": tags, "ways": ways, "nodes": nodes,
+            "members": members}
 
 
 def parse_opl(lines):

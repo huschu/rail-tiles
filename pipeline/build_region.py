@@ -7,6 +7,8 @@ Build one region's PMTiles pyramid (steps 2-5 of the pipeline).
   chain   join non-service ways end-to-end for z2-z11 (once; rule 3)
   per z   simplify at the band tolerance, collapse parallel track, emit GeoJSON
   tile    one tippecanoe pass per zoom (-Z z -z z), then tile-join
+  station one tippecanoe pass for the `stations` point layer (stations.py),
+          joined beside the rail layer
 
 Usage: build_region.py NAME OUT.pmtiles IN-rail.osm.pbf [--night OUT.json] [--keep-tmp DIR]
 
@@ -27,6 +29,7 @@ import classify as C
 import geometry as G
 import night
 import routes
+import stations
 import zoomparams as Z
 
 
@@ -229,11 +232,14 @@ def emit_zoom(polys, z, mean_lat, is_chain):
     return feats
 
 
-def tippecanoe(geojson, out, z):
-    """Tile one zoom. Returns tippecanoe's own reported feature count so the
-    caller can assert conservation (gate 1) against the input GeoJSON."""
+def tippecanoe(geojson, out, z, max_zoom=None, layer="rail"):
+    """Tile one zoom, or zooms z..max_zoom. Returns tippecanoe's own reported
+    feature count so the caller can assert conservation (gate 1) against the
+    input GeoJSON."""
+    # -r1: over a zoom range tippecanoe thins points below the top zoom.
+    thin = ["-r1"] if max_zoom else []
     r = subprocess.run(
-        ["tippecanoe", "-o", out, "-Z", str(z), "-z", str(z), "-l", "rail",
+        ["tippecanoe", "-o", out, "-Z", str(z), "-z", str(max_zoom or z), "-l", layer, *thin,
          "--no-feature-limit", "--no-tile-size-limit", "-f", geojson],
         check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     for tok in r.stderr.split("\n"):
@@ -323,6 +329,21 @@ def main():
                      f"features, tippecanoe kept {got}. Silent drop.")
         parts.append(part)
         print(f"[{args.name}] z{z}: {len(feats):,} features (conserved)", file=sys.stderr)
+
+    points = stations.features(args.pbf, opl)
+    if points and parts:
+        gj = os.path.join(tmp, "stations.geojsonseq")
+        with open(gj, "w") as f:
+            for ft in points:
+                f.write(json.dumps(ft, ensure_ascii=False, separators=(",", ":")) + "\n")
+        part = os.path.join(tmp, "stations.pmtiles")
+        got = tippecanoe(gj, part, stations.STATION_MIN_ZOOM, Z.MAX_ZOOM, layer="stations")
+        if got is not None and got != len(points):
+            sys.exit(f"[{args.name}] GATE 1 FAIL stations: wrote {len(points)} "
+                     f"features, tippecanoe kept {got}. Silent drop.")
+        parts.append(part)
+        served = sum(1 for p in points if "routes" in p["properties"])
+        print(f"[{args.name}] stations: {len(points):,} ({served:,} with services)", file=sys.stderr)
 
     if not parts:
         print(f"[{args.name}] no tileable features; no tileset produced", file=sys.stderr)

@@ -43,6 +43,8 @@ GATE6_MIN_FEATURES = 50
 # A tile header line: { ... "properties": { "zoom": N, "x": N, "y": N }, ... }.
 # The layer-level FeatureCollection nested inside carries "layer" instead.
 _TILE_RE = re.compile(r'"zoom":\s*(\d+),\s*"x":\s*(\d+),\s*"y":\s*(\d+)')
+_LAYER_RE = re.compile(r'"layer":\s*"([^"]+)"')
+STATION_FIELDS = ("osm_id", "kind")
 
 
 def _nverts(geom):
@@ -83,11 +85,16 @@ def scan(pmtiles):
     g6_feats = {z: [] for z in g6_zooms}         # gate 6: per-feature endpoints
     field_fail = None                      # gate 4: first missing-field message
     z = x = y = None
+    layer = None
 
     for line in proc.stdout:
         m = _TILE_RE.search(line)
         if m and '"layer"' not in line:
             z, x, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            continue
+        lm = _LAYER_RE.search(line)
+        if lm and '"type": "FeatureCollection"' in line:
+            layer = lm.group(1)
             continue
         if '"type": "Feature"' not in line or z is None:
             continue
@@ -97,6 +104,12 @@ def scan(pmtiles):
             continue
         p = f.get("properties") or {}
         g = f.get("geometry") or {}
+
+        if layer == "stations":
+            miss = next((k for k in STATION_FIELDS if k not in p), None)
+            if miss and field_fail is None:
+                field_fail = f"GATE 4 FAIL: station missing {miss}: {p}"
+            continue
 
         if field_fail is None:
             miss = next((k for k in REQUIRED_FIELDS if k not in p), None)

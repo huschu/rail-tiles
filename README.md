@@ -15,6 +15,7 @@ cache (see [Incremental updates](#incremental-updates)).
 | `pipeline/` | classify tags → typed fields, chain ways, collapse parallel track, tile per zoom, verify |
 | `pipeline/join_planet.py` | group region tilesets by continent and tile-join each |
 | `pipeline/diff_tiles.py` | per-tile content hashes and the change list between two builds |
+| `pipeline/stations.py` | station points and the services that call at each |
 | `pipeline/night.py` | decide the night trains across regions and write their list |
 | `pipeline/manifest.py` | emit `manifest.json` (archives, bounds, `builds` chain, night-train list) |
 | `scripts/fetch_region.sh` | download an extract (Geofabrik → OSM-France fallback), filter to railway ways |
@@ -23,8 +24,10 @@ cache (see [Incremental updates](#incremental-updates)).
 
 ## Output
 
-- z2–z16, single `rail` layer. Below z12: merged chains carrying source spans.
+- z2–z16 `rail` layer. Below z12: merged chains carrying source spans.
   z12 and up: raw OSM ways.
+- z9–z16 `stations` layer (schema 3): one point per station, see
+  [Stations](#stations).
 - Attributes (raw numbers; speed bands are the client's job): `kind`,
   `lifecycle`, `usage`, `service`, `elec`, `voltage`, `frequency`,
   `gauge_class`, `gauge_mm`, `gauge_mm_list`, `maxspeed`, `train_protection`, `tp_rank`,
@@ -47,6 +50,34 @@ cache (see [Incremental updates](#incremental-updates)).
 - **8 continent archives, ~3.6 GB total** (a single planet file exceeds the 2 GB
   per-asset limit). A client loads only the archives overlapping the viewport and
   only the tiles it views.
+
+## Stations
+
+The `stations` layer holds a point per `railway=station` or `railway=halt`
+node, or `public_transport=station` for a rail mode. A station mapped only as an
+area becomes its centroid. Main-line stations appear from z9; halts and metro,
+light rail, monorail and funicular stations from z12.
+
+| attribute | value |
+|---|---|
+| `osm_id` | `n<id>` (`w<id>` for an area) |
+| `name` | the `name` tag |
+| `kind` | `train`, `subway`, `light_rail`, `monorail`, `funicular` |
+| `halt` | true for `railway=halt` |
+| `routes` | JSON `[[route, title, colour, network, [relation ids]], ...]` |
+
+`routes` lists the services that call at the station. A route relation calls
+there when one of its `stop*` or `platform*` members is in a
+`public_transport=stop_area` that holds the station, or is the station. A stop
+no stop area places counts for the nearest station of a matching mode within
+250 m. A stop area holding a train and a metro station gives each only the
+routes of its own mode. Relations group into one service by route type, network
+and ref (or name), which is how the app's detail sheet groups them, so both
+directions of a line are one entry. `colour` is the 24-bit RGB integer of the
+first relation with a colour tag, or null.
+
+The tiles carry only relation ids. The app fetches a service's member ways and
+stops from the OSM API when the user opens it.
 
 ## Night trains
 
