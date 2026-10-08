@@ -62,9 +62,42 @@ class SegmentAttributes(unittest.TestCase):
 
 
 class StructureLevelOfDetail(unittest.TestCase):
-    def test_gap_between_bridges_stays_at_grade(self):
-        out = G.attribute_lod([True, False, True], [500, 30, 500], 100, no_grow={True})
-        self.assertEqual(out, [True, False, True])
+    def test_short_gap_between_tunnels_closes(self):
+        out = G.attribute_lod(["tunnel", None, "tunnel"], [500, 30, 500], 100,
+                              no_grow={"tunnel", "bridge"})
+        self.assertEqual(out, ["tunnel"] * 3)
+
+    def test_long_gap_between_tunnels_stays_at_grade(self):
+        out = G.attribute_lod(["tunnel", None, "tunnel"], [500, 300, 500], 100,
+                              no_grow={"tunnel", "bridge"})
+        self.assertEqual(out, ["tunnel", None, "tunnel"])
+
+    def test_short_tunnels_close_a_gap_under_twice_their_length(self):
+        out = G.attribute_lod([None, "tunnel", None, "tunnel", None],
+                              [5000, 50, 60, 50, 5000], 77,
+                              no_grow={"tunnel", "bridge"}, no_grow_weight=2)
+        self.assertEqual(out, [None, "tunnel", "tunnel", "tunnel", None])
+
+    def test_short_tunnels_with_a_gap_over_twice_their_length_dissolve(self):
+        out = G.attribute_lod([None, "tunnel", None, "tunnel", None],
+                              [5000, 30, 70, 30, 5000], 77,
+                              no_grow={"tunnel", "bridge"}, no_grow_weight=2)
+        self.assertEqual(out, [None] * 5)
+
+    def test_short_tunnels_with_a_longer_gap_dissolve(self):
+        out = G.attribute_lod([None, "tunnel", None, "tunnel", None],
+                              [5000, 50, 60, 50, 5000], 77, no_grow={"tunnel", "bridge"})
+        self.assertEqual(out, [None] * 5)
+
+    def test_short_tunnel_joins_a_long_one_across_a_gap(self):
+        out = G.attribute_lod([None, "tunnel", None, "tunnel", None],
+                              [5000, 500, 40, 30, 5000], 77, no_grow={"tunnel", "bridge"})
+        self.assertEqual(out, [None, "tunnel", "tunnel", "tunnel", None])
+
+    def test_tunnel_does_not_grow_out_over_open_track(self):
+        out = G.attribute_lod(["tunnel", None, "bridge"], [500, 30, 500], 100,
+                              no_grow={"tunnel", "bridge"})
+        self.assertEqual(out, ["tunnel", None, "bridge"])
 
     def test_short_bridge_still_dissolves(self):
         out = G.attribute_lod([False, True, False], [500, 30, 500], 100, no_grow={True})
@@ -87,6 +120,24 @@ class StructureLevelOfDetail(unittest.TestCase):
                 way("wE", 3580, 6000)]
         subs = segment_chain(chained(ways), 10, LAT)
         self.assertFalse(any(s["bridge"] for s in subs))
+
+    def test_tunnels_join_over_a_short_viaduct_and_open_cuttings(self):
+        # z10 at 48° N: 1.5 px is ~77 m. Tunnel, 10 m cutting, 40 m viaduct,
+        # 10 m cutting, tunnel draws as one tunnel.
+        ways = [way("wA", 0, 3000), way("wB", 3000, 5000, tunnel="yes"),
+                way("wC", 5000, 5010), way("wD", 5010, 5050, bridge="yes"),
+                way("wE", 5050, 5060), way("wF", 5060, 7000, tunnel="yes"),
+                way("wG", 7000, 9000)]
+        subs = segment_chain(chained(ways), 10, LAT)
+        tunnels = [extent_m(s) for s in subs if s["tunnel"]]
+        self.assertEqual(tunnels, [(3000, 7000)])
+        self.assertFalse(any(s["bridge"] for s in subs))
+
+    def test_the_viaduct_between_tunnels_resolves_when_zoomed_in(self):
+        ways = [way("wA", 0, 3000, tunnel="yes"), way("wB", 3000, 3050, bridge="yes"),
+                way("wC", 3050, 6000, tunnel="yes")]
+        subs = segment_chain(chained(ways), 14, LAT)
+        self.assertEqual([extent_m(s) for s in subs if s["bridge"]], [(3000, 3050)])
 
 
 

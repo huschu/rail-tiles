@@ -124,10 +124,15 @@ def segment_chain(ch, z, mean_lat):
         return []
     ml = Z.attr_min_len_m(z, mean_lat)
     band = G.attribute_lod(a["band"], ln, ml)
-    # A structure never grows over the track beside it: a short at-grade gap
-    # between two bridges stays at grade, a short bridge still dissolves.
-    tun = G.attribute_lod(a["tunnel"], ln, ml, no_grow={True})
-    brg = G.attribute_lod(a["bridge"], ln, ml, no_grow={True})
+    # One attribute, so a short viaduct between tunnels joins them instead of
+    # dissolving to at grade. A structure only grows over a short run it lies
+    # on both sides of, never out over open track at its ends. Structures
+    # count double when picking what dissolves first: they are the feature.
+    st = ["tunnel" if t else "bridge" if b else None
+          for t, b in zip(a["tunnel"], a["bridge"])]
+    st = G.attribute_lod(st, ln, ml, no_grow={"tunnel", "bridge"}, no_grow_weight=2)
+    tun = [v == "tunnel" for v in st]
+    brg = [v == "bridge" for v in st]
     prot = G.attribute_lod(a["protection"], ln, ml)
     rad = G.attribute_lod(a["radio"], ln, ml)
     traf = G.attribute_lod(a["traffic"], ln, ml)

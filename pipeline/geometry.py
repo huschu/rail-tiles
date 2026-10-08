@@ -342,7 +342,7 @@ def _drop_single_survivor_runs(coords, src, shadow):
         yield seg_c, seg_s, seg_i
 
 
-def attribute_lod(values, lengths, min_len, no_grow=frozenset()):
+def attribute_lod(values, lengths, min_len, no_grow=frozenset(), no_grow_weight=1.0):
     """Level-of-detail for an along-line attribute. `values`/`lengths` describe
     consecutive segments; merge any run of one value shorter than `min_len` into
     whichever neighbouring value covers more length, until every run is long
@@ -350,8 +350,13 @@ def attribute_lod(values, lengths, min_len, no_grow=frozenset()):
     what lets a short 400 km/h blip vanish into the dominant band, or a short
     tunnel into the at-grade line, at low zoom, and resolve as you zoom in.
 
-    A run whose value is in `no_grow` never absorbs a neighbour: a short run
-    beside it merges the other way, or stays when it has no other neighbour."""
+    A run whose value is in `no_grow` absorbs a short neighbour only when it
+    lies on both sides of it, which closes the gap between them; otherwise the
+    short run merges the other way, or stays when it has no other neighbour. A
+    gap with a long enough `no_grow` run on one side closes before anything
+    else, so a short run beyond it joins that run instead of dissolving.
+    `no_grow` runs count `no_grow_weight` times their length when picking which
+    short run dissolves first, so a weight above 1 favours closing the gap."""
     n = len(values)
     if n == 0:
         return []
@@ -364,15 +369,26 @@ def attribute_lod(values, lengths, min_len, no_grow=frozenset()):
             runs.append([v, l, i, i])
 
     def targets(k):
-        left = runs[k - 1] if k > 0 and runs[k - 1][0] not in no_grow else None
-        right = runs[k + 1] if k + 1 < len(runs) and runs[k + 1][0] not in no_grow else None
+        left = runs[k - 1] if k > 0 else None
+        right = runs[k + 1] if k + 1 < len(runs) else None
+        if left and right and left[0] == right[0]:
+            return left, right
+        if left and left[0] in no_grow:
+            left = None
+        if right and right[0] in no_grow:
+            right = None
         return left, right
 
     while len(runs) > 1:
         short = [k for k, r in enumerate(runs) if r[1] < min_len and targets(k) != (None, None)]
         if not short:
             break
-        k = min(short, key=lambda k: runs[k][1])          # dissolve the shortest first
+        anchored = [k for k in short
+                    if 0 < k < len(runs) - 1 and runs[k - 1][0] == runs[k + 1][0]
+                    and runs[k - 1][0] in no_grow
+                    and max(runs[k - 1][1], runs[k + 1][1]) >= min_len]
+        k = min(anchored or short, key=lambda k: runs[k][1]    # dissolve the shortest first
+                * (no_grow_weight if runs[k][0] in no_grow else 1.0))
         left, right = targets(k)
         into = left if (right is None or (left and left[1] >= right[1])) else right
         into[1] += runs[k][1]
