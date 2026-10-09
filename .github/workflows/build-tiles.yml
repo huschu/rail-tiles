@@ -7,7 +7,10 @@ name: build-tiles
 # on-demand runs.
 on:
   schedule:
-    - cron: "0 3 * * 1"        # Mondays 03:00 UTC
+    # Mondays 04:17 UTC: after Geofabrik's nightly extract refresh (the last
+    # extracts land around 03:30 UTC), and off the hour, where GitHub delays
+    # scheduled runs the most.
+    - cron: "17 4 * * 1"
   workflow_dispatch:
     inputs:
       regions:
@@ -327,22 +330,24 @@ jobs:
           gh release upload latest manifest.json --clobber
 
       # Retention (RETENTION.md). Runs only after both publish steps succeeded, so
-      # the manifest already points at this build. The 2 newest dated releases
-      # stay whole: the current one, and the prior one as a grace window for
-      # clients on the previous manifest and for the next build's diff. Older
-      # releases lose their .pmtiles and .hashes and keep the .changed lists
-      # that clients chain through.
+      # the manifest already points at this build. Archives stay for 14 days,
+      # and always on the 2 newest releases: the app re-reads the manifest only
+      # at cold launch, so a suspended app keeps reading an older build's
+      # archives. Hashes stay on the 2 newest releases, which is all the next
+      # build's diff reads. The .changed lists that clients chain through stay.
       - name: Prune old release assets
         if: github.event.inputs.regions == ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
+          CUTOFF=$(date -u -d '14 days ago' +%Y%m%d)
           mapfile -t OLD < <(gh release list --limit 1000 --json tagName -q '.[].tagName' \
             | grep -E '^[0-9]{8}$' | sort -ru | tail -n +3)
           for t in "${OLD[@]}"; do
+            if [[ "$t" < "$CUTOFF" ]]; then pattern='\.(pmtiles|hashes)$'; else pattern='\.hashes$'; fi
             gh release view "$t" --json assets -q '.assets[].name' \
-              | grep -E '\.(pmtiles|hashes)$' \
+              | grep -E "$pattern" \
               | while read -r name; do
                   echo "delete $t/$name"
                   gh release delete-asset "$t" "$name" --yes \

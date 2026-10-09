@@ -137,10 +137,9 @@ it publishes hashes only; change lists begin one build later.
 Releases are permanent: GitHub keeps a release and its assets until deleted, so
 old `.changed` stay fetchable and the chain is only bounded by the `builds` cap.
 The per-region tilesets are Actions **artifacts** (`retention-days: 3`) and do
-expire. After a full build publishes, a prune step deletes the `.pmtiles` and
-`.hashes` from every dated release but the 2 newest and keeps the change lists,
-so archive storage stays at about two builds. [RETENTION.md](RETENTION.md) gives
-the reasoning.
+expire. After a full build publishes, a prune step deletes `.pmtiles` older than
+14 days and `.hashes` from all but the 2 newest releases, and keeps the change
+lists. [RETENTION.md](RETENTION.md) gives the reasoning.
 
 ## Local
 
