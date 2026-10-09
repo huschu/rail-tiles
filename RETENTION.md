@@ -1,10 +1,11 @@
 # Release asset retention
 
-Status: planned, not implemented.
+Status: implemented as the "Prune old release assets" step of the `join` job in
+[build-tiles.yml](.github/workflows/build-tiles.yml).
 
 Each weekly build publishes ~3.6 GB of `.pmtiles`, ~92 MB of `.hashes`, and a few
 hundred KB of `.changed` to a dated release. GitHub releases never expire, so with
-no pruning storage grows ~3.7 GB per week forever. This plan strips the large
+no pruning storage grows ~3.7 GB per week forever. The prune step strips the large
 assets from old releases while keeping the change lists, which are the only past
 assets the incremental client update needs. See
 [Incremental updates](README.md#incremental-updates) for the update mechanism.
@@ -43,18 +44,20 @@ After pruning, an old dated release holds only its `.changed` files. GitHub dele
 assets individually with `gh release delete-asset <tag> <name>` without touching
 the release or its other assets, so the change-list URLs keep resolving.
 
-## Implementation sketch
+## Implementation
 
-A prune step at the end of a successful build, or a separate scheduled workflow:
+The prune runs as the last publishing step of a full build:
 
 1. List dated releases (`gh release list`, tags matching `^[0-9]{8}$`), newest
    first.
-2. Keep the 2 newest releases whole.
+2. Keep the 2 newest releases whole. The build just published the newest one.
 3. On every older release, delete its `.pmtiles` and `.hashes`, keep `.changed`.
 
-Gate it on the publish step succeeding, so it never deletes an archive a
-half-finished build still points at. Never touch the `latest` release, it holds
-`manifest.json`.
+It runs only when both publish steps succeeded, so it never deletes an archive a
+half-finished build still points at. Smoke runs skip it. It never touches the
+`latest` release, which holds `manifest.json`, or the small
+`night-trains-<tag>.json.gz`. A failed delete logs a warning and the next build
+retries it.
 
 ## Result
 
