@@ -248,10 +248,6 @@
   "path": "asia/china-latest.osm.pbf"
  },
  {
-  "name": "east-timor",
-  "path": "asia/east-timor-latest.osm.pbf"
- },
- {
   "name": "gcc-states",
   "path": "asia/gcc-states-latest.osm.pbf"
  },
@@ -520,10 +516,6 @@
   "path": "europe/austria-latest.osm.pbf"
  },
  {
-  "name": "azores",
-  "path": "europe/azores-latest.osm.pbf"
- },
- {
   "name": "belarus",
   "path": "europe/belarus-latest.osm.pbf"
  },
@@ -642,10 +634,6 @@
  {
   "name": "moldova",
   "path": "europe/moldova-latest.osm.pbf"
- },
- {
-  "name": "monaco",
-  "path": "europe/monaco-latest.osm.pbf"
  },
  {
   "name": "montenegro",

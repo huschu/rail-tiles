@@ -29,16 +29,70 @@ CONTINENTS = ["africa", "asia", "australia-oceania", "central-america",
 #   united-kingdom -> great-britain + Northern Ireland, which
 #     ireland-and-northern-ireland covers; listed beside great-britain, it
 #     built all of Britain twice
-# Offshore territories (azores, canary-islands, ...) are far from their mainland
+# Regions whose whole boundary lies inside a neighbour's, so the neighbour's
+# extract already holds everything in them:
+#   monaco (inside france), azores (inside portugal),
+#   east-timor (inside indonesia)
+# Other offshore territories (canary-islands, ...) are far from their mainland
 # extracts and do not overlap, so they are kept.
 EXCLUDE = {"us", "us-midwest", "us-northeast", "us-pacific", "us-south", "us-west",
            "alps", "dach", "britain-and-ireland", "sea", "south-africa-and-lesotho",
-           "united-kingdom"}
+           "united-kingdom", "monaco", "azores", "east-timor"}
 # ISO-less regions known to be genuine (not aggregates); anything else without an
 # ISO code triggers a warning as a possible new aggregate to review.
-KNOWN_ISOLESS = {"great-britain", "azores", "guernsey-jersey", "isle-of-man",
+KNOWN_ISOLESS = {"great-britain", "guernsey-jersey", "isle-of-man",
                  "canary-islands", "comores"}
 GEOFABRIK = "https://download.geofabrik.de/"
+
+
+def _rings(geom):
+    """Every ring, outer and hole, of a GeoJSON Polygon or MultiPolygon."""
+    if not geom:
+        return []
+    if geom["type"] == "Polygon":
+        return list(geom["coordinates"])
+    return [ring for poly in geom["coordinates"] for ring in poly]
+
+
+def _inside(x, y, rings):
+    """Even-odd rule over all rings, so a hole (an enclave such as Lesotho
+    in South Africa) counts as outside."""
+    hit = False
+    for ring in rings:
+        for (x0, y0), (x1, y1) in zip(ring, ring[1:]):
+            if (y0 > y) != (y1 > y) and x < x0 + (y - y0) * (x1 - x0) / (y1 - y0):
+                hit = not hit
+    return hit
+
+
+def _bbox(rings):
+    xs = [x for r in rings for x, _ in r]
+    ys = [y for r in rings for _, y in r]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def nested(regions, geoms, share=0.9, grid=20):
+    """Pairs (inner, outer) where most of inner's area lies inside outer's
+    boundary: outer's extract already holds inner, so building both
+    duplicates it. Area is sampled on a grid, since a boundary's vertices
+    crowd along detailed borders such as rivers."""
+    rings = {r: _rings(geoms.get(r)) for r in regions if geoms.get(r)}
+    boxes = {r: _bbox(rr) for r, rr in rings.items()}
+    out = []
+    for a, ra in rings.items():
+        x0, y0, x1, y1 = boxes[a]
+        pts = [(x0 + (i + 0.5) * (x1 - x0) / grid, y0 + (j + 0.5) * (y1 - y0) / grid)
+               for i in range(grid) for j in range(grid)]
+        pts = [p for p in pts if _inside(*p, ra)]
+        if not pts:
+            continue
+        for b, rb in rings.items():
+            bx0, by0, bx1, by1 = boxes[b]
+            if b == a or bx0 > x1 or bx1 < x0 or by0 > y1 or by1 < y0:
+                continue
+            if sum(_inside(x, y, rb) for x, y in pts) >= share * len(pts):
+                out.append((a, b))
+    return out
 
 
 def main():
@@ -78,6 +132,11 @@ def main():
     rp = (byid["russia"].get("urls") or {}).get("pbf")
     if rp:
         regions.append({"name": "russia", "path": rel(rp)})
+
+    geoms = {f["properties"]["id"].replace("/", "-"): f.get("geometry") for f in d["features"]}
+    for inner, outer in nested([r["name"] for r in regions], geoms):
+        print(f"WARNING: {inner} lies inside {outer}, so building both duplicates it. "
+              f"Add one of them to EXCLUDE.", file=sys.stderr)
 
     json.dump(regions, sys.stdout, indent=1)
     print(f"\n{len(regions)} regions", file=sys.stderr)
