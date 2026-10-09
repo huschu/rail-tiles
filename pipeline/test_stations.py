@@ -73,6 +73,22 @@ class Services(unittest.TestCase):
         ])
 
 
+class AreaDuplicates(unittest.TestCase):
+    def test_an_area_around_its_own_node_is_dropped(self):
+        got = S._drop_area_duplicates({
+            "n1": station("n1", -3.6823, 40.4721, name="Chamartín"),
+            "w2": station("w2", -3.6825, 40.4722, name="Chamartín"),
+        })
+        self.assertEqual(set(got), {"n1"})
+
+    def test_a_differently_named_station_nearby_is_kept(self):
+        got = S._drop_area_duplicates({
+            "n1": station("n1", -3.6823, 40.4721, name="Norte"),
+            "w2": station("w2", -3.6830, 40.4725, name="Sur"),
+        })
+        self.assertEqual(set(got), {"n1", "w2"})
+
+
 class Kind(unittest.TestCase):
     def test_kinds(self):
         self.assertEqual(S.station_kind({"railway": "station"}), "train")

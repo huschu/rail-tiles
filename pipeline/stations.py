@@ -134,14 +134,19 @@ def read_points(pbf):
 
 def _drop_area_duplicates(stations):
     """An area mapped around a station node it duplicates is dropped; the
-    node is the feature routes and stop areas name."""
+    node is the feature routes and stop areas name. A nearby node of another
+    name is a different station, as two termini across a square are."""
     nodes = [s for s in stations.values() if s["id"].startswith("n")]
     grid = _Grid(nodes)
+
+    def same(a, b):
+        return a["kind"] == b["kind"] and (not a["name"] or not b["name"]
+                                           or a["name"].casefold() == b["name"].casefold())
+
     out = {}
     for sid, s in stations.items():
         if not sid.startswith("n"):
-            near = grid.near(s["lon"], s["lat"], NEAR_M)
-            if any(n["kind"] == s["kind"] for n, _ in near):
+            if any(same(n, s) for n, _ in grid.near(s["lon"], s["lat"], NEAR_M)):
                 continue
         out[sid] = s
     return out
