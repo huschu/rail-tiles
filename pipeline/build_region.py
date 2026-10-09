@@ -12,14 +12,15 @@ Build one region's PMTiles pyramid (steps 2-5 of the pipeline).
 
 Usage: build_region.py NAME OUT.pmtiles IN-rail.osm.pbf [--night OUT.json]
                        [--stations OUT.geojsonseq] [--partition SHAPES.json]
-                       [--keep-tmp DIR]
+                       [--border OUT.json] [--keep-tmp DIR]
 
 --night writes the region's night-train candidates for the join (night.py).
 --stations writes the region's stations for the join to merge and tile
 (join_planet.py) instead of tiling them into the region archive; without it,
 as for a local build, the region archive holds its own stations layer.
 --partition keeps only the border ways this region owns (partition.py), so a
-way in two overlapping extracts is built once.
+way in two overlapping extracts is built once. --border writes which border
+ways it left to whom and which it kept, for the join to check nothing is lost.
 
 Every tippecanoe call passes --no-feature-limit --no-tile-size-limit: nothing
 is ever dropped (rule 1). Verified locally that these keep feature counts whole.
@@ -291,6 +292,7 @@ def main():
     ap.add_argument("--night")
     ap.add_argument("--stations")
     ap.add_argument("--partition")
+    ap.add_argument("--border")
     ap.add_argument("--keep-tmp")
     args = ap.parse_args()
 
@@ -306,7 +308,10 @@ def main():
         import partition
         part = partition.Partition(args.partition, args.name)
         before = len(ways)
-        ways = [w for w in ways if part.keeps(w["coords"])]
+        ways = [w for w in ways if part.keeps(w["id"], w["coords"])]
+        if args.border:
+            with open(args.border, "w") as f:
+                json.dump(part.border_record(), f, separators=(",", ":"))
         given = ", ".join(f"{n} {c:,}" for n, c in sorted(part.given.items(), key=lambda t: -t[1]))
         print(f"[{args.name}] partition: kept {len(ways):,} of {before:,} ways"
               + (f"; left to {given}" if given else ""), file=sys.stderr)

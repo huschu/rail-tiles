@@ -101,8 +101,9 @@ jobs:
             work/${{ matrix.region.name }}.pmtiles
             work/${{ matrix.region.name }}.night.json
             work/${{ matrix.region.name }}.stations.geojsonseq
+            work/${{ matrix.region.name }}.border.json
             work/${{ matrix.region.name }}.timestamp
-          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/colour.py', 'pipeline/routes.py', 'pipeline/stations.py', 'pipeline/night.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py', 'pipeline/partition.py', 'pipeline/regions.json', 'pipeline/region_shapes.json', 'scripts/fetch_region.sh') }}
+          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/colour.py', 'pipeline/routes.py', 'pipeline/stations.py', 'pipeline/night.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py', 'pipeline/partition.py', 'pipeline/border_check.py', 'pipeline/regions.json', 'pipeline/region_shapes.json', 'scripts/fetch_region.sh') }}
           restore-keys: |
             tiles-${{ matrix.region.name }}-
 
@@ -127,15 +128,18 @@ jobs:
           NEW="work/$NAME.new.pmtiles"
           NIGHT="work/$NAME.night.new.json"
           STATIONS="work/$NAME.stations.new.geojsonseq"   # merged across regions at the join
+          BORDER="work/$NAME.border.new.json"             # checked across regions at the join
           if [ ! -f "work/$NAME-rail.osm.pbf" ]; then
             bash scripts/fetch_region.sh "$NAME" "$PATHREL" work || true
           fi
           if [ -f "work/$NAME-rail.osm.pbf" ]; then
             if python3 pipeline/build_region.py "$NAME" "$NEW" "work/$NAME-rail.osm.pbf" \
-                 --night "$NIGHT" --stations "$STATIONS" --partition pipeline/region_shapes.json; then
+                 --night "$NIGHT" --stations "$STATIONS" \
+                 --partition pipeline/region_shapes.json --border "$BORDER"; then
               if [ ! -f "$NEW" ]; then
                 rm -f "work/$NAME.pmtiles" "work/$NAME.night.json" "$NIGHT" \
-                      "work/$NAME.stations.geojsonseq" "$STATIONS"   # railless region: legitimately empty
+                      "work/$NAME.stations.geojsonseq" "$STATIONS" \
+                      "work/$NAME.border.json" "$BORDER"   # railless region: legitimately empty
                 echo "$NAME: no railways"; exit 0
               fi
               if python3 pipeline/verify.py "$NEW"; then
@@ -143,6 +147,7 @@ jobs:
                 mv "$NIGHT" "work/$NAME.night.json"
                 if [ -f "$STATIONS" ]; then mv "$STATIONS" "work/$NAME.stations.geojsonseq"
                 else rm -f "work/$NAME.stations.geojsonseq"; fi
+                mv "$BORDER" "work/$NAME.border.json"
                 echo "built=true" >> "$GITHUB_OUTPUT"
                 exit 0
               fi
@@ -150,7 +155,7 @@ jobs:
             else
               echo "::warning::$NAME: build failed on fresh extract"
             fi
-            rm -f "$NEW" "$NIGHT" "$STATIONS"
+            rm -f "$NEW" "$NIGHT" "$STATIONS" "$BORDER"
           else
             echo "::warning::$NAME: download failed on both mirrors"
           fi
@@ -167,8 +172,9 @@ jobs:
             work/${{ matrix.region.name }}.pmtiles
             work/${{ matrix.region.name }}.night.json
             work/${{ matrix.region.name }}.stations.geojsonseq
+            work/${{ matrix.region.name }}.border.json
             work/${{ matrix.region.name }}.timestamp
-          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/colour.py', 'pipeline/routes.py', 'pipeline/stations.py', 'pipeline/night.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py', 'pipeline/partition.py', 'pipeline/regions.json', 'pipeline/region_shapes.json', 'scripts/fetch_region.sh') }}
+          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/colour.py', 'pipeline/routes.py', 'pipeline/stations.py', 'pipeline/night.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py', 'pipeline/partition.py', 'pipeline/border_check.py', 'pipeline/regions.json', 'pipeline/region_shapes.json', 'scripts/fetch_region.sh') }}
 
       - name: Upload region tileset          # skipped only when the region hard-failed
         if: success()
@@ -179,6 +185,7 @@ jobs:
             work/${{ matrix.region.name }}.pmtiles
             work/${{ matrix.region.name }}.night.json
             work/${{ matrix.region.name }}.stations.geojsonseq
+            work/${{ matrix.region.name }}.border.json
             work/${{ matrix.region.name }}.timestamp
           if-no-files-found: ignore
           retention-days: 3
@@ -219,6 +226,11 @@ jobs:
           if len(missing) > allowed:
               raise SystemExit(f"::error::{len(missing)} regions missing (> {allowed}); likely an outage")
           PY
+
+      # Every border way a region left to a neighbour must be one the
+      # neighbour kept; pipeline/border_check.py warns about lost ways.
+      - name: Border check
+        run: python3 pipeline/border_check.py regions
 
       - name: Join per continent
         id: join
