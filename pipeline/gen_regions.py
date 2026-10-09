@@ -12,7 +12,11 @@ Antarctica is skipped (no railways).
 Each entry is {name, path}: name is a filesystem-safe slug, path is the extract's
 location relative to a mirror root (Geofabrik and the OSM-France mirror share it).
 
-Usage: gen_regions.py index-v1.json > pipeline/regions.json
+Usage: gen_regions.py index-v1.json [--shapes pipeline/region_shapes.json] > pipeline/regions.json
+
+--shapes writes each matrix region's Geofabrik boundary, which the region
+builds use to keep every border way in exactly one region (partition.py).
+Regenerate both files together; the tiles cache key hashes both.
 """
 import json
 import sys
@@ -97,6 +101,7 @@ def nested(regions, geoms, share=0.9, grid=20):
 
 def main():
     d = json.load(open(sys.argv[1]))
+    shapes_out = sys.argv[sys.argv.index("--shapes") + 1] if "--shapes" in sys.argv else None
     byid = {f["properties"]["id"]: f["properties"] for f in d["features"]}
     kids = {}
     for f in d["features"]:
@@ -137,6 +142,12 @@ def main():
     for inner, outer in nested([r["name"] for r in regions], geoms):
         print(f"WARNING: {inner} lies inside {outer}, so building both duplicates it. "
               f"Add one of them to EXCLUDE.", file=sys.stderr)
+
+    if shapes_out:
+        names = {r["name"] for r in regions}
+        shapes = {n: g for n, g in geoms.items() if n in names and g}
+        with open(shapes_out, "w") as f:
+            json.dump(shapes, f, separators=(",", ":"), sort_keys=True)
 
     json.dump(regions, sys.stdout, indent=1)
     print(f"\n{len(regions)} regions", file=sys.stderr)

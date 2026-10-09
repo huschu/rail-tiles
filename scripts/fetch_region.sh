@@ -51,6 +51,10 @@ for URL in "${MIRRORS[@]}"; do
           --max-time 7200 \
           -o "$RAW" "$URL"; then
     echo "[$NAME] downloaded $(du -h "$RAW" | cut -f1)"
+    if [ "$URL" != "${MIRRORS[0]}" ]; then
+      # The border partition assumes Geofabrik's boundaries (pipeline/partition.py).
+      echo "::warning::$NAME: extract from a fallback mirror, cut along other boundaries; border ways may be missing or doubled until Geofabrik serves it again"
+    fi
     ok=1; break
   fi
   echo "[$NAME] mirror failed, trying next"

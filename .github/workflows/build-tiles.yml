@@ -69,7 +69,8 @@ jobs:
           df -h /
 
       - name: Install osmium
-        run: sudo apt-get update && sudo apt-get install -y osmium-tool
+        # shapely for the border partition (pipeline/partition.py)
+        run: sudo apt-get update && sudo apt-get install -y osmium-tool python3-shapely
 
       - uses: ./.github/actions/tippecanoe
 
@@ -101,7 +102,7 @@ jobs:
             work/${{ matrix.region.name }}.night.json
             work/${{ matrix.region.name }}.stations.geojsonseq
             work/${{ matrix.region.name }}.timestamp
-          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/colour.py', 'pipeline/routes.py', 'pipeline/stations.py', 'pipeline/night.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py', 'scripts/fetch_region.sh') }}
+          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/colour.py', 'pipeline/routes.py', 'pipeline/stations.py', 'pipeline/night.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py', 'pipeline/partition.py', 'pipeline/regions.json', 'pipeline/region_shapes.json', 'scripts/fetch_region.sh') }}
           restore-keys: |
             tiles-${{ matrix.region.name }}-
 
@@ -131,7 +132,7 @@ jobs:
           fi
           if [ -f "work/$NAME-rail.osm.pbf" ]; then
             if python3 pipeline/build_region.py "$NAME" "$NEW" "work/$NAME-rail.osm.pbf" \
-                 --night "$NIGHT" --stations "$STATIONS"; then
+                 --night "$NIGHT" --stations "$STATIONS" --partition pipeline/region_shapes.json; then
               if [ ! -f "$NEW" ]; then
                 rm -f "work/$NAME.pmtiles" "work/$NAME.night.json" "$NIGHT" \
                       "work/$NAME.stations.geojsonseq" "$STATIONS"   # railless region: legitimately empty
@@ -167,7 +168,7 @@ jobs:
             work/${{ matrix.region.name }}.night.json
             work/${{ matrix.region.name }}.stations.geojsonseq
             work/${{ matrix.region.name }}.timestamp
-          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/colour.py', 'pipeline/routes.py', 'pipeline/stations.py', 'pipeline/night.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py', 'scripts/fetch_region.sh') }}
+          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/colour.py', 'pipeline/routes.py', 'pipeline/stations.py', 'pipeline/night.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py', 'pipeline/partition.py', 'pipeline/regions.json', 'pipeline/region_shapes.json', 'scripts/fetch_region.sh') }}
 
       - name: Upload region tileset          # skipped only when the region hard-failed
         if: success()

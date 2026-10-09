@@ -11,12 +11,15 @@ Build one region's PMTiles pyramid (steps 2-5 of the pipeline).
           joined beside the rail layer
 
 Usage: build_region.py NAME OUT.pmtiles IN-rail.osm.pbf [--night OUT.json]
-                       [--stations OUT.geojsonseq] [--keep-tmp DIR]
+                       [--stations OUT.geojsonseq] [--partition SHAPES.json]
+                       [--keep-tmp DIR]
 
 --night writes the region's night-train candidates for the join (night.py).
 --stations writes the region's stations for the join to merge and tile
 (join_planet.py) instead of tiling them into the region archive; without it,
 as for a local build, the region archive holds its own stations layer.
+--partition keeps only the border ways this region owns (partition.py), so a
+way in two overlapping extracts is built once.
 
 Every tippecanoe call passes --no-feature-limit --no-tile-size-limit: nothing
 is ever dropped (rule 1). Verified locally that these keep feature counts whole.
@@ -287,6 +290,7 @@ def main():
     ap.add_argument("pbf")
     ap.add_argument("--night")
     ap.add_argument("--stations")
+    ap.add_argument("--partition")
     ap.add_argument("--keep-tmp")
     args = ap.parse_args()
 
@@ -296,6 +300,19 @@ def main():
         with open(args.night, "w") as f:
             json.dump(sc, f, separators=(",", ":"))
         print(f"[{args.name}] {len(sc['relations'])} night-train candidates", file=sys.stderr)
+    if args.partition:
+        # After the night sidecar, whose lengths unite by way across regions;
+        # before chaining, so every zoom sees the same ways.
+        import partition
+        part = partition.Partition(args.partition, args.name)
+        before = len(ways)
+        ways = [w for w in ways if part.keeps(w["coords"])]
+        given = ", ".join(f"{n} {c:,}" for n, c in sorted(part.given.items(), key=lambda t: -t[1]))
+        print(f"[{args.name}] partition: kept {len(ways):,} of {before:,} ways"
+              + (f"; left to {given}" if given else ""), file=sys.stderr)
+        if before and (before - len(ways)) / before > partition.MAX_DROP:
+            sys.exit(f"[{args.name}] PARTITION FAIL: would leave {before - len(ways):,} of "
+                     f"{before:,} ways to neighbours; a boundary is likely wrong.")
     nonservice = [w for w in ways if not C.is_service(w["props"])]
     print(f"[{args.name}] {len(ways):,} ways ({len(nonservice):,} non-service), "
           f"mean lat {mean_lat:.1f}", file=sys.stderr)
