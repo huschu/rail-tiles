@@ -14,6 +14,10 @@ its candidates with the length of every member way it holds; the join reads
 all sidecars and decides. Geofabrik extracts overlap at borders and a way can
 sit in two of them, so lengths are united by way id, never summed per region.
 
+A train's service is the route_master=train relation that lists it, such as
+"NJ 294/NJ 295: München <=> Rom" for both directions or a EuroNight whose
+branches split on the way. A train no route master lists is its own service.
+
 The tiles do not change: the app matches the published member ways against
 the src and absorbed ways the tiles already carry.
 
@@ -60,11 +64,18 @@ def way_length_m(coords):
 
 def sidecar(opl_lines, way_coords):
     """This region's candidates: each relation's tags, full member list and
-    stops, plus the length in metres of every member way the region holds."""
-    relations, lengths = [], {}
+    stops, plus the length in metres of every member way the region holds,
+    and the route masters that list a candidate."""
+    relations, lengths, masters = [], {}, []
     for line in opl_lines:
         r = routes.parse_relation(line)
-        if r is None or not candidate(r["tags"]):
+        if r is None:
+            continue
+        if r["tags"].get("type") == "route_master" and r["tags"].get("route_master") == "train":
+            masters.append({"id": int(r["rid"]), "version": r["version"], "tags": r["tags"],
+                            "routes": [int(m[1:]) for m, _ in r["members"] if m.startswith("r")]})
+            continue
+        if not candidate(r["tags"]):
             continue
         relations.append({
             "id": int(r["rid"]), "version": r["version"], "tags": r["tags"],
@@ -75,28 +86,47 @@ def sidecar(opl_lines, way_coords):
             c = way_coords.get(w)
             if c is not None and w not in lengths:
                 lengths[w] = round(way_length_m(c))
-    return {"relations": relations, "lengths": {w[1:]: m for w, m in lengths.items()}}
+    ids = {r["id"] for r in relations}
+    masters = [m for m in masters if ids.intersection(m["routes"])]
+    return {"relations": relations, "masters": masters,
+            "lengths": {w[1:]: m for w, m in lengths.items()}}
+
+
+def _newest(records, into):
+    for r in records:
+        have = into.get(r["id"])
+        if have is None or r["version"] > have["version"]:
+            into[r["id"]] = r
 
 
 def decide(sidecars):
-    """The night trains across all regions, by relation id. Each relation
-    comes from the region with its newest version."""
-    rels, lengths = {}, {}
+    """{trains, services}: the night trains across all regions by relation
+    id, and the route masters they belong to. Each relation comes from the
+    region with its newest version."""
+    rels, masters, lengths = {}, {}, {}
     for sc in sidecars:
-        for r in sc["relations"]:
-            have = rels.get(r["id"])
-            if have is None or r["version"] > have["version"]:
-                rels[r["id"]] = r
+        _newest(sc["relations"], rels)
+        _newest(sc.get("masters", []), masters)
         for w, m in sc["lengths"].items():
             lengths[w] = max(m, lengths.get(w, 0))
-    out = []
+    # A train two route masters list goes to the lower id, so builds agree.
+    service_of = {}
+    for mid in sorted(masters, reverse=True):
+        for rid in masters[mid]["routes"]:
+            service_of[rid] = mid
+    trains = []
     for rid in sorted(rels):
         r = rels[rid]
         km = sum(lengths.get(str(w), 0) for w in set(r["ways"])) / 1000
         if sleeper(r["tags"]) or km >= MIN_KM:
-            out.append({"id": rid, "tags": r["tags"], "ways": r["ways"],
-                        "stops": r["stops"], "km": round(km)})
-    return out
+            train = {"id": rid, "tags": r["tags"], "ways": r["ways"],
+                     "stops": r["stops"], "km": round(km)}
+            if rid in service_of:
+                train["service"] = service_of[rid]
+            trains.append(train)
+    used = sorted({t["service"] for t in trains if "service" in t})
+    services = [{"id": mid, "tags": masters[mid]["tags"]} for mid in used]
+    return {"trains": trains, "services": services}
 
 
 def join(regions_dir, out):
@@ -113,10 +143,12 @@ def join(regions_dir, out):
         # cross-border route counts as zero until the region rebuilds.
         print(f"::warning::no night sidecar for {len(missing)} regions: "
               + ", ".join(missing), file=sys.stderr)
-    trains = decide(sidecars)
+    decided = decide(sidecars)
+    trains = decided["trains"]
     with gzip.open(out, "wt") as f:
-        json.dump({"minKm": MIN_KM, "trains": trains}, f, separators=(",", ":"))
-    print(f"night trains: {len(trains)} from {len(sidecars)} regions -> "
+        json.dump({"minKm": MIN_KM, **decided}, f, separators=(",", ":"))
+    print(f"night trains: {len(trains)} in {len(decided['services'])} route masters "
+          f"from {len(sidecars)} regions -> "
           f"{os.path.getsize(out) / 1024:.0f} KB", file=sys.stderr)
 
 

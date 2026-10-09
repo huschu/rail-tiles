@@ -112,7 +112,10 @@ that count as night trains: those with `sleeping_car=yes` or `couchette=yes`
 at any length, and those whose `service` includes `night` when the route is at
 least 300 km long. The length check keeps out local trains that run at night,
 such as NS Nachtnet. Each entry has the relation's tags, member ways, stop
-nodes and length in km.
+nodes and length in km, and `service`: the id of the `route_master=train`
+relation that lists it. `services` gives each of those route masters' tags. A
+service groups a train's directions and branches; a train no route master
+lists has no `service` and stands alone.
 
 The tiles do not change. The app matches the member ways against the `osm_id`,
 `src` and `absorbed` ways the tiles already carry.
