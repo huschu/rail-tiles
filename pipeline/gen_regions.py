@@ -26,10 +26,14 @@ CONTINENTS = ["africa", "asia", "australia-oceania", "central-america",
 #   britain-and-ireland -> great-britain + ireland-and-northern-ireland
 #   sea -> the South-East-Asia countries
 #   south-africa-and-lesotho -> south-africa + lesotho
+#   united-kingdom -> great-britain + Northern Ireland, which
+#     ireland-and-northern-ireland covers; listed beside great-britain, it
+#     built all of Britain twice
 # Offshore territories (azores, canary-islands, ...) are far from their mainland
 # extracts and do not overlap, so they are kept.
 EXCLUDE = {"us", "us-midwest", "us-northeast", "us-pacific", "us-south", "us-west",
-           "alps", "dach", "britain-and-ireland", "sea", "south-africa-and-lesotho"}
+           "alps", "dach", "britain-and-ireland", "sea", "south-africa-and-lesotho",
+           "united-kingdom"}
 # ISO-less regions known to be genuine (not aggregates); anything else without an
 # ISO code triggers a warning as a possible new aggregate to review.
 KNOWN_ISOLESS = {"great-britain", "azores", "guernsey-jersey", "isle-of-man",

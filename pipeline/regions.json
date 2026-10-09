@@ -704,10 +704,6 @@
   "path": "europe/ukraine-latest.osm.pbf"
  },
  {
-  "name": "united-kingdom",
-  "path": "europe/united-kingdom-latest.osm.pbf"
- },
- {
   "name": "canada",
   "path": "north-america/canada-latest.osm.pbf"
  },

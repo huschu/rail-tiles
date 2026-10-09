@@ -113,7 +113,7 @@ sidecars contributes nothing until it rebuilds, and the join warns about it.
 
 ## Build
 
-Weekly cron plus manual dispatch. 246 regions worldwide (country level; the US as
+Weekly cron plus manual dispatch. 245 regions worldwide (country level; the US as
 states; Canada and Russia whole; cross-border aggregates excluded). Per region:
 fetch → filter → tile → verify, skipping regions whose extract is unchanged
 (md5-keyed cache). Then `join_planet.py` tile-joins per continent into
