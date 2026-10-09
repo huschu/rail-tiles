@@ -337,7 +337,7 @@ def main():
             for ft in points:
                 f.write(json.dumps(ft, ensure_ascii=False, separators=(",", ":")) + "\n")
         part = os.path.join(tmp, "stations.pmtiles")
-        got = tippecanoe(gj, part, stations.STATION_MIN_ZOOM, Z.MAX_ZOOM, layer="stations")
+        got = tippecanoe(gj, part, stations.STATION_MIN_ZOOM, stations.STATION_MAX_ZOOM, layer="stations")
         if got is not None and got != len(points):
             sys.exit(f"[{args.name}] GATE 1 FAIL stations: wrote {len(points)} "
                      f"features, tippecanoe kept {got}. Silent drop.")

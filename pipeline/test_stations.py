@@ -49,6 +49,15 @@ class Calls(unittest.TestCase):
         got = S.calls(rels, self.stations, self.stops)
         self.assertEqual(got, {"n3": {"400"}})
 
+    def test_a_tram_calls_at_its_tram_stop_not_the_station_beside_it(self):
+        self.stations["n4"] = station("n4", -3.6822, 40.4720, kind="tram")
+        rels = [
+            rel("100", {"public_transport": "stop_area"}, [("n1", ""), ("n4", "stop"), ("n10", "stop")]),
+            rel("600", {"route": "tram", "ref": "T1"}, [("n4", "stop")]),
+        ]
+        got = S.calls(rels, self.stations, self.stops)
+        self.assertEqual(got, {"n4": {"600"}})
+
     def test_a_route_without_stop_roles_calls_nowhere(self):
         rels = [rel("500", {"route": "train", "ref": "X"}, [("n30", ""), ("w1", "")])]
         self.assertEqual(S.calls(rels, self.stations, self.stops), {})
@@ -96,7 +105,7 @@ class Kind(unittest.TestCase):
         self.assertEqual(S.station_kind({"railway": "halt", "light_rail": "yes"}), "light_rail")
         self.assertIsNone(S.station_kind({"public_transport": "station", "bus": "yes"}))
         self.assertEqual(S.station_kind({"public_transport": "station", "train": "yes"}), "train")
-        self.assertIsNone(S.station_kind({"railway": "tram_stop"}))
+        self.assertEqual(S.station_kind({"railway": "tram_stop"}), "tram")
 
 
 if __name__ == "__main__":

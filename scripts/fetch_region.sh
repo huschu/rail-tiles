@@ -24,7 +24,7 @@ FILTER=(
   w/abandoned:railway w/razed:railway w/preserved:railway w/railway:preserved
   # Stations and the stop positions routes name (pipeline/stations.py). Station
   # areas keep their nodes so they get a centroid.
-  n/railway=station,halt,stop n/public_transport=station,stop_position
+  n/railway=station,halt,stop,tram_stop n/public_transport=station,stop_position
   w/railway=station w/public_transport=station
 )
 

@@ -26,7 +26,7 @@ cache (see [Incremental updates](#incremental-updates)).
 
 - z2–z16 `rail` layer. Below z12: merged chains carrying source spans.
   z12 and up: raw OSM ways.
-- z9–z16 `stations` layer (schema 3): one point per station, see
+- z9–z14 `stations` layer (schema 3): one point per station, see
   [Stations](#stations).
 - Attributes (raw numbers; speed bands are the client's job): `kind`,
   `lifecycle`, `usage`, `service`, `elec`, `voltage`, `frequency`,
@@ -53,16 +53,20 @@ cache (see [Incremental updates](#incremental-updates)).
 
 ## Stations
 
-The `stations` layer holds a point per `railway=station` or `railway=halt`
-node, or `public_transport=station` for a rail mode. A station mapped only as an
-area becomes its centroid. Main-line stations appear from z9; halts and metro,
-light rail, monorail and funicular stations from z12.
+The `stations` layer holds a point per `railway=station`, `railway=halt` or
+`railway=tram_stop` node, or `public_transport=station` for a rail mode. A
+station mapped only as an area becomes its centroid. Main-line stations appear
+from z9; halts and metro, light rail, monorail and funicular stations from z12;
+tram stops from z13. The layer stops at z14, which places a station to about a
+metre; the app draws deeper zooms from the z14 points, which saves ~40% of the
+layer. On Switzerland, Madrid and Galicia it adds 4.3%, 3.3% and 1.8% to the
+region archive.
 
 | attribute | value |
 |---|---|
 | `osm_id` | `n<id>` (`w<id>` for an area) |
 | `name` | the `name` tag |
-| `kind` | `train`, `subway`, `light_rail`, `monorail`, `funicular` |
+| `kind` | `train`, `subway`, `light_rail`, `monorail`, `funicular`, `tram` |
 | `halt` | true for `railway=halt` |
 | `routes` | JSON `[[route, title, colour, network, [relation ids]], ...]` |
 

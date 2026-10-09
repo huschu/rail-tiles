@@ -4,6 +4,7 @@ Stations and the services that call at them.
 A station is a node tagged railway=station or railway=halt, or
 public_transport=station for a rail mode (train, subway, light_rail, monorail,
 funicular). A station mapped only as an area becomes a point at its centroid.
+A railway=tram_stop node is a station of kind tram.
 
 A route relation calls at a station when one of its stop or platform members
 is in a public_transport=stop_area that holds the station, or is the station
@@ -29,6 +30,7 @@ import routes
 
 SERVICES = ("train", "subway", "light_rail", "monorail", "funicular", "tram")
 MODES = ("train", "subway", "light_rail", "monorail", "funicular")
+KINDS = MODES + ("tram",)
 
 # Order of services in a station's list: main-line first.
 _ORDER = {r: i for i, r in enumerate(SERVICES)}
@@ -37,25 +39,31 @@ _ORDER = {r: i for i, r in enumerate(SERVICES)}
 NEAR_M = 250
 
 # Main-line stations from z9; halts and urban stations once a city fills the
-# screen.
+# screen; tram stops, the densest, one zoom later.
 STATION_MIN_ZOOM = 9
 MINOR_MIN_ZOOM = 12
+TRAM_MIN_ZOOM = 13
+# The app draws z15 and z16 from the z14 points, which already place a
+# station to about a metre; repeating them would add ~40% to the layer.
+STATION_MAX_ZOOM = 14
 
 # Which station kinds a route type calls at.
 _SERVES = {
     "train": {"train"},
     "subway": {"subway"},
-    "light_rail": {"light_rail", "subway", "train"},
+    "light_rail": {"light_rail", "subway", "train", "tram"},
     "monorail": {"monorail"},
     "funicular": {"funicular"},
-    "tram": {"light_rail", "train", "subway"},
+    "tram": {"tram", "light_rail"},
 }
 
 
 def station_kind(tags):
     """The rail mode of a station, or None for anything else (bus stations,
-    disused stations, tram stops)."""
+    disused stations)."""
     railway = tags.get("railway")
+    if railway == "tram_stop":
+        return "tram"
     if railway not in ("station", "halt"):
         if tags.get("public_transport") != "station":
             return None
@@ -87,7 +95,7 @@ def read_points(pbf):
         out = os.path.join(tmp, "stations.geojsonseq")
         subprocess.run(
             ["osmium", "tags-filter", pbf,
-             "n/railway=station,halt,stop", "n/public_transport=station,stop_position",
+             "n/railway=station,halt,stop,tram_stop", "n/public_transport=station,stop_position",
              "w/railway=station", "w/public_transport=station",
              "-o", sub, "--overwrite"],
             check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -295,9 +303,14 @@ def features(pbf, opl_lines):
             props["halt"] = True
         if entries:
             props["routes"] = json.dumps(entries, ensure_ascii=False, separators=(",", ":"))
-        major = s["kind"] == "train" and not s["halt"]
+        if s["kind"] == "train" and not s["halt"]:
+            minzoom = STATION_MIN_ZOOM
+        elif s["kind"] == "tram":
+            minzoom = TRAM_MIN_ZOOM
+        else:
+            minzoom = MINOR_MIN_ZOOM
         out.append({"type": "Feature",
-                    "tippecanoe": {"minzoom": STATION_MIN_ZOOM if major else MINOR_MIN_ZOOM},
+                    "tippecanoe": {"minzoom": minzoom},
                     "properties": props,
                     "geometry": {"type": "Point",
                                  "coordinates": [round(s["lon"], 6), round(s["lat"], 6)]}})
