@@ -22,9 +22,10 @@ FILTER=(
   "w/railway=rail,light_rail,narrow_gauge,monorail,subway,tram,funicular,construction,proposed,disused,abandoned,razed,preserved"
   w/construction:railway w/proposed:railway w/disused:railway
   w/abandoned:railway w/razed:railway w/preserved:railway w/railway:preserved
-  # Stations and the stop positions routes name (pipeline/stations.py). Station
-  # areas keep their nodes so they get a centroid.
-  n/railway=station,halt,stop,tram_stop n/public_transport=station,stop_position
+  # Stations (pipeline/stations.py). Station areas keep their nodes so they get
+  # a centroid. The stop positions routes name come with the track ways they
+  # sit on; selecting them by tag would add every bus stop.
+  n/railway=station,halt,stop,tram_stop n/public_transport=station
   w/railway=station w/public_transport=station
 )
 

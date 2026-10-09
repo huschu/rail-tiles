@@ -10,9 +10,13 @@ Build one region's PMTiles pyramid (steps 2-5 of the pipeline).
   station one tippecanoe pass for the `stations` point layer (stations.py),
           joined beside the rail layer
 
-Usage: build_region.py NAME OUT.pmtiles IN-rail.osm.pbf [--night OUT.json] [--keep-tmp DIR]
+Usage: build_region.py NAME OUT.pmtiles IN-rail.osm.pbf [--night OUT.json]
+                       [--stations OUT.geojsonseq] [--keep-tmp DIR]
 
 --night writes the region's night-train candidates for the join (night.py).
+--stations writes the region's stations for the join to merge and tile
+(join_planet.py) instead of tiling them into the region archive; without it,
+as for a local build, the region archive holds its own stations layer.
 
 Every tippecanoe call passes --no-feature-limit --no-tile-size-limit: nothing
 is ever dropped (rule 1). Verified locally that these keep feature counts whole.
@@ -251,6 +255,25 @@ def tippecanoe(geojson, out, z, max_zoom=None, layer="rail"):
     return None
 
 
+def write_seq(path, features):
+    with open(path, "w") as f:
+        for ft in features:
+            f.write(json.dumps(ft, ensure_ascii=False, separators=(",", ":")) + "\n")
+
+
+def tile_stations(points, tmp, name):
+    """The stations layer as its own tileset, for tile-join beside the rail
+    layer. Gate 1 counts its points like the rail features."""
+    gj = os.path.join(tmp, f"{name}.stations.geojsonseq")
+    write_seq(gj, points)
+    part = os.path.join(tmp, f"{name}.stations.pmtiles")
+    got = tippecanoe(gj, part, stations.STATION_MIN_ZOOM, stations.STATION_MAX_ZOOM, layer="stations")
+    if got is not None and got != len(points):
+        sys.exit(f"[{name}] GATE 1 FAIL stations: wrote {len(points)} "
+                 f"features, tippecanoe kept {got}. Silent drop.")
+    return part
+
+
 def tile_join(parts, out):
     subprocess.run(
         ["tile-join", "-o", out, "--no-tile-size-limit", "--force", "-q", *parts],
@@ -263,6 +286,7 @@ def main():
     ap.add_argument("out")
     ap.add_argument("pbf")
     ap.add_argument("--night")
+    ap.add_argument("--stations")
     ap.add_argument("--keep-tmp")
     args = ap.parse_args()
 
@@ -332,18 +356,12 @@ def main():
 
     points = stations.features(args.pbf, opl)
     if points and parts:
-        gj = os.path.join(tmp, "stations.geojsonseq")
-        with open(gj, "w") as f:
-            for ft in points:
-                f.write(json.dumps(ft, ensure_ascii=False, separators=(",", ":")) + "\n")
-        part = os.path.join(tmp, "stations.pmtiles")
-        got = tippecanoe(gj, part, stations.STATION_MIN_ZOOM, stations.STATION_MAX_ZOOM, layer="stations")
-        if got is not None and got != len(points):
-            sys.exit(f"[{args.name}] GATE 1 FAIL stations: wrote {len(points)} "
-                     f"features, tippecanoe kept {got}. Silent drop.")
-        parts.append(part)
         served = sum(1 for p in points if "routes" in p["properties"])
         print(f"[{args.name}] stations: {len(points):,} ({served:,} with services)", file=sys.stderr)
+        if args.stations:
+            write_seq(args.stations, points)
+        else:
+            parts.append(tile_stations(points, tmp, args.name))
 
     if not parts:
         print(f"[{args.name}] no tileable features; no tileset produced", file=sys.stderr)

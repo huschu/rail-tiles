@@ -268,9 +268,45 @@ def services(rids, rel_by_id):
         g["ids"].append(int(rid))
         if g["colour"] is None:
             g["colour"] = routes.colour.parse(tags.get("colour") or tags.get("color"))
+    return _entries(groups)
+
+
+def _entries(groups):
+    """Service groups as sorted entries, main-line first, then by network and
+    title."""
     entries = sorted(groups.values(), key=lambda g: (_ORDER[g["route"]], g["network"] is None,
                                                       g["network"] or "", _natural(g["title"])))
     return [[g["route"], g["title"], g["colour"], g["network"], sorted(g["ids"])] for g in entries]
+
+
+def merge(feature_lists):
+    """One feature per station across region extracts. Geofabrik extracts
+    overlap at borders and each holds only the routes it contains, so a border
+    station built in two regions lists the services of both."""
+    merged = {}
+    for features in feature_lists:
+        for f in features:
+            sid = f["properties"]["osm_id"]
+            m = merged.get(sid)
+            if m is None:
+                merged[sid] = json.loads(json.dumps(f))
+                continue
+            m["tippecanoe"]["minzoom"] = min(m["tippecanoe"]["minzoom"], f["tippecanoe"]["minzoom"])
+            if not m["properties"].get("name") and f["properties"].get("name"):
+                m["properties"]["name"] = f["properties"]["name"]
+            groups = {}
+            for props in (m["properties"], f["properties"]):
+                for route, title, colour, network, ids in json.loads(props.get("routes") or "[]"):
+                    g = groups.setdefault((route, network or "", title),
+                                          {"route": route, "title": title, "network": network,
+                                           "colour": None, "ids": []})
+                    g["ids"] = sorted(set(g["ids"]) | set(ids))
+                    if g["colour"] is None:
+                        g["colour"] = colour
+            if groups:
+                m["properties"]["routes"] = json.dumps(_entries(groups), ensure_ascii=False,
+                                                       separators=(",", ":"))
+    return list(merged.values())
 
 
 def _natural(s):

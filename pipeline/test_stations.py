@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import unittest
@@ -79,6 +80,27 @@ class Services(unittest.TestCase):
             ["train", "C-10", 0x9ACD32, "Cercanías Madrid", [1, 2]],
             ["train", "Iryo", None, None, [5]],
             ["subway", "L1", None, "Metro", [4]],
+        ])
+
+
+class Merge(unittest.TestCase):
+    def feature(self, sid, minzoom, routes):
+        return {"type": "Feature", "tippecanoe": {"minzoom": minzoom},
+                "properties": {"osm_id": sid, "kind": "train", "name": "Basel SBB",
+                               "routes": json.dumps(routes)},
+                "geometry": {"type": "Point", "coordinates": [7.59, 47.55]}}
+
+    def test_a_border_station_lists_the_services_of_both_regions(self):
+        swiss = [self.feature("n1", 9, [["train", "IC 3", None, "SBB", [1, 2]]])]
+        german = [self.feature("n1", 12, [["train", "IC 3", 0xE4013A, "SBB", [2, 3]],
+                                          ["train", "ICE 20", None, "DB", [7]]]),
+                  self.feature("n2", 12, [])]
+        got = {f["properties"]["osm_id"]: f for f in S.merge([swiss, german])}
+        self.assertEqual(set(got), {"n1", "n2"})
+        self.assertEqual(got["n1"]["tippecanoe"]["minzoom"], 9)
+        self.assertEqual(json.loads(got["n1"]["properties"]["routes"]), [
+            ["train", "ICE 20", None, "DB", [7]],
+            ["train", "IC 3", 0xE4013A, "SBB", [1, 2, 3]],
         ])
 
 

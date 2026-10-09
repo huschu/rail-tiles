@@ -99,6 +99,7 @@ jobs:
           path: |
             work/${{ matrix.region.name }}.pmtiles
             work/${{ matrix.region.name }}.night.json
+            work/${{ matrix.region.name }}.stations.geojsonseq
             work/${{ matrix.region.name }}.timestamp
           key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/colour.py', 'pipeline/routes.py', 'pipeline/stations.py', 'pipeline/night.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py', 'scripts/fetch_region.sh') }}
           restore-keys: |
@@ -124,18 +125,23 @@ jobs:
           set -uo pipefail
           NEW="work/$NAME.new.pmtiles"
           NIGHT="work/$NAME.night.new.json"
+          STATIONS="work/$NAME.stations.new.geojsonseq"   # merged across regions at the join
           if [ ! -f "work/$NAME-rail.osm.pbf" ]; then
             bash scripts/fetch_region.sh "$NAME" "$PATHREL" work || true
           fi
           if [ -f "work/$NAME-rail.osm.pbf" ]; then
-            if python3 pipeline/build_region.py "$NAME" "$NEW" "work/$NAME-rail.osm.pbf" --night "$NIGHT"; then
+            if python3 pipeline/build_region.py "$NAME" "$NEW" "work/$NAME-rail.osm.pbf" \
+                 --night "$NIGHT" --stations "$STATIONS"; then
               if [ ! -f "$NEW" ]; then
-                rm -f "work/$NAME.pmtiles" "work/$NAME.night.json" "$NIGHT"   # railless region: legitimately empty
+                rm -f "work/$NAME.pmtiles" "work/$NAME.night.json" "$NIGHT" \
+                      "work/$NAME.stations.geojsonseq" "$STATIONS"   # railless region: legitimately empty
                 echo "$NAME: no railways"; exit 0
               fi
               if python3 pipeline/verify.py "$NEW"; then
                 mv "$NEW" "work/$NAME.pmtiles"
                 mv "$NIGHT" "work/$NAME.night.json"
+                if [ -f "$STATIONS" ]; then mv "$STATIONS" "work/$NAME.stations.geojsonseq"
+                else rm -f "work/$NAME.stations.geojsonseq"; fi
                 echo "built=true" >> "$GITHUB_OUTPUT"
                 exit 0
               fi
@@ -143,7 +149,7 @@ jobs:
             else
               echo "::warning::$NAME: build failed on fresh extract"
             fi
-            rm -f "$NEW" "$NIGHT"
+            rm -f "$NEW" "$NIGHT" "$STATIONS"
           else
             echo "::warning::$NAME: download failed on both mirrors"
           fi
@@ -159,6 +165,7 @@ jobs:
           path: |
             work/${{ matrix.region.name }}.pmtiles
             work/${{ matrix.region.name }}.night.json
+            work/${{ matrix.region.name }}.stations.geojsonseq
             work/${{ matrix.region.name }}.timestamp
           key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/colour.py', 'pipeline/routes.py', 'pipeline/stations.py', 'pipeline/night.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py', 'scripts/fetch_region.sh') }}
 
@@ -170,6 +177,7 @@ jobs:
           path: |
             work/${{ matrix.region.name }}.pmtiles
             work/${{ matrix.region.name }}.night.json
+            work/${{ matrix.region.name }}.stations.geojsonseq
             work/${{ matrix.region.name }}.timestamp
           if-no-files-found: ignore
           retention-days: 3
