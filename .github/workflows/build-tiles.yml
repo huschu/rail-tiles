@@ -368,7 +368,7 @@ jobs:
           for t in "${OLD[@]}"; do
             if [[ "$t" < "$CUTOFF" ]]; then pattern='\.(pmtiles|hashes)$'; else pattern='\.hashes$'; fi
             gh release view "$t" --json assets -q '.assets[].name' \
-              | grep -E "$pattern" \
+              | { grep -E "$pattern" || true; } \
               | while read -r name; do
                   echo "delete $t/$name"
                   gh release delete-asset "$t" "$name" --yes \
