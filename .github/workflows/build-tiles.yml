@@ -337,7 +337,13 @@ jobs:
                  --notes "OSM railway PMTiles pyramid z2-z16, per-continent. Source as of ${{ steps.join.outputs.osm_ts }}."
           for f in out/*.pmtiles out/*.hashes out/*.changed out/night-trains-*.json.gz; do
             [ -e "$f" ] || continue
-            gh release upload "$TAG" "$f" --clobber
+            # uploads.github.com fails single large uploads now and then (a 404 on 2026-10-26).
+            for attempt in 1 2 3; do
+              gh release upload "$TAG" "$f" --clobber && break
+              [ "$attempt" -lt 3 ] || exit 1
+              echo "::warning::upload of $f failed (attempt $attempt), retrying"
+              sleep 30
+            done
           done
 
       - name: Publish manifest at the stable 'latest' tag
