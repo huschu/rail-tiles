@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Group the per-region tilesets by continent and tile-join each into one archive.
+Group the per-region tilesets by continent and tile-join each into one archive,
+then recompress its tiles to zstd (zstd_tiles.py).
 
 The planet as a single file is ~3.6 GB, over the 2 GB per-asset Releases limit,
 so it ships as per-continent archives instead (the largest, Europe, is ~1.2 GB).
@@ -29,6 +30,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import build_region
 import stations
+import zstd_tiles
 
 
 def continent(path):
@@ -80,8 +82,11 @@ def main():
     for cont, parts in sorted(groups.items()):
         parts = parts + station_parts.get(cont, [])
         out = os.path.join(out_dir, f"{cont}-{tag}.pmtiles")
-        subprocess.run(["tile-join", "-o", out, "--no-tile-size-limit", "--force", *parts],
+        joined = os.path.join(out_dir, f"{cont}-{tag}.gzip.pmtiles")
+        subprocess.run(["tile-join", "-o", joined, "--no-tile-size-limit", "--force", *parts],
                        check=True)
+        zstd_tiles.recompress(joined, out)
+        os.remove(joined)
         mb = os.path.getsize(out) / 1e6
         print(f"{cont}: joined {len(parts)} regions -> {mb:.0f} MB", file=sys.stderr)
         archives.append(cont)

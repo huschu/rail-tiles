@@ -17,6 +17,10 @@ on:
         description: "Comma-separated region names to build instead of the whole world (smoke test), e.g. switzerland,japan,us-california"
         required: false
         default: ""
+      test_tag:
+        description: "Publish a full build under this release tag, as a prerelease with its own manifest.json, and leave 'latest' and the prune alone, e.g. zstd-test-1"
+        required: false
+        default: ""
 
 concurrency:
   group: build-tiles
@@ -43,8 +47,14 @@ jobs:
           fi
           echo "regions=$REGIONS" >> "$GITHUB_OUTPUT"
       - id: stamp
+        env:
+          TEST_TAG: ${{ github.event.inputs.test_tag }}
         run: |
-          echo "tag=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+          # A dated tag would join the builds chain and the prune.
+          if [[ "$TEST_TAG" =~ ^[0-9]{8}$ || "$TEST_TAG" == latest ]]; then
+            echo "::error::test_tag must not be latest or look like a dated build tag"; exit 1
+          fi
+          echo "tag=${TEST_TAG:-$(date -u +%Y%m%d)}" >> "$GITHUB_OUTPUT"
           echo "build_id=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
   build:
@@ -200,6 +210,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/tippecanoe
+      # compression.zstd, for the zstd tiles, is in the standard library from 3.14.
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
 
       - uses: actions/download-artifact@v8
         with:
@@ -332,8 +346,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ needs.prepare.outputs.tag }}"
+          PRE=(); [ -z "${{ github.event.inputs.test_tag }}" ] || PRE=(--prerelease)
           gh release view "$TAG" >/dev/null 2>&1 \
-            || gh release create "$TAG" --title "Planet tiles $TAG" \
+            || gh release create "$TAG" "${PRE[@]}" --title "Planet tiles $TAG" \
                  --notes "OSM railway PMTiles pyramid z2-z16, per-continent. Source as of ${{ steps.join.outputs.osm_ts }}."
           for f in out/*.pmtiles out/*.hashes out/*.changed out/night-trains-*.json.gz; do
             [ -e "$f" ] || continue
@@ -346,8 +361,14 @@ jobs:
             done
           done
 
+      - name: Publish manifest with the test release
+        if: github.event.inputs.regions == '' && github.event.inputs.test_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ needs.prepare.outputs.tag }}" manifest.json --clobber
+
       - name: Publish manifest at the stable 'latest' tag
-        if: github.event.inputs.regions == ''
+        if: github.event.inputs.regions == '' && github.event.inputs.test_tag == ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -363,7 +384,7 @@ jobs:
       # archives. Hashes stay on the 2 newest releases, which is all the next
       # build's diff reads. The .changed lists that clients chain through stay.
       - name: Prune old release assets
-        if: github.event.inputs.regions == ''
+        if: github.event.inputs.regions == '' && github.event.inputs.test_tag == ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

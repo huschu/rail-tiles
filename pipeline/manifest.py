@@ -34,7 +34,7 @@ import os
 import struct
 import sys
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4               # 4: zstd tiles
 MIN_ZOOM = 2
 MAX_ZOOM = 16
 

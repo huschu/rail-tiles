@@ -15,14 +15,13 @@ Two artifacts per continent:
   <region>-<tag>.changed  client-facing, gzipped JSON. The z/x/y tiles that
                           changed, were added, or were removed since the previous
                           build. The client deletes each from its disk cache; the
-                          next camera visit refetches it. Gzipped because the app
-                          already gunzips (tiles are gzipped MVT); GitHub serves
+                          next camera visit refetches it. Gzipped; GitHub serves
                           release assets verbatim, so no double-decompression.
 
-The hash is over the stored (compressed) tile bytes, so it is exact: an unchanged
-tile hashes identically across builds (confirmed: reused regions are byte-identical
-and tile-join is deterministic). A same-length edit is caught where a length-only
-diff would miss it.
+The hash is over the decompressed MVT bytes, so it is exact: an unchanged tile
+hashes identically across builds, whatever codec or zstd version stored it. A
+same-length edit is caught where a length-only diff would miss it. Hashes from
+the older format, over stored gzip bytes, are refused rather than compared.
 
 Commands:
   diff_tiles.py hash  ARCHIVE.pmtiles  OUT.hashes
@@ -36,6 +35,7 @@ import json
 import mmap
 import struct
 import sys
+from compression import zstd
 
 # ---- PMTiles v3 reader (enough to enumerate tiles; mirrors PMTiles.swift) ----
 
@@ -86,6 +86,10 @@ class Archive:
             raw = gzip.decompress(raw)
         return _deserialize(raw)
 
+    def tile_at(self, off, length):
+        base = self.tile_off
+        return decompress_tile(self.tcomp, self.mm[base + off:base + off + length])
+
     def tiles(self):
         """Yield (tileId, offset, length) for every addressed tile."""
         stack = [self._dir(self.root_off, self.root_len)]
@@ -103,9 +107,18 @@ class Archive:
                 stack.append(self._dir(self.leaf_off + loff, llen))
 
     def hash_at(self, off, length):
-        base = self.tile_off
-        return hashlib.blake2b(self.mm[base + off:base + off + length],
-                               digest_size=8).digest()
+        return hashlib.blake2b(self.tile_at(off, length), digest_size=8).digest()
+
+
+def decompress_tile(tcomp, b):
+    """Tile bytes by the header's tile_compression: 1 none, 2 gzip, 4 zstd."""
+    if tcomp == 2:
+        return gzip.decompress(b)
+    if tcomp == 4:
+        return zstd.decompress(b)
+    if tcomp == 1:
+        return bytes(b)
+    raise ValueError(f"unsupported tile compression {tcomp}")
 
 
 # ---- Hilbert tileId <-> z/x/y (verbatim port of protomaps/PMTiles) ----
@@ -160,9 +173,10 @@ def _rotate_fwd(n, x, y, rx, ry):
     return x, y
 
 
-# ---- .hashes binary format: "RTH1", varint count, then (varint idDelta, 8B hash) ----
+# ---- .hashes binary format: "RTH2", varint count, then (varint idDelta, 8B hash) ----
 
-_MAGIC = b"RTH1"
+# RTH1 hashed the stored gzip bytes; RTH2 hashes the decompressed tile.
+_MAGIC = b"RTH2"
 
 def _wv(out, n):
     while True:
@@ -188,7 +202,7 @@ def read_hashes(path):
     with open(path, "rb") as f:
         b = f.read()
     if b[:4] != _MAGIC:
-        raise ValueError(f"{path}: bad hashes magic")
+        raise ValueError(f"{path}: hashes magic {b[:4]!r}, expected {_MAGIC!r}")
     r = _Reader(b); r.i = 4
     n = r.v()
     d = {}

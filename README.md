@@ -16,6 +16,7 @@ cache (see [Incremental updates](#incremental-updates)).
 | `pipeline/partition.py` | keep each border way in exactly one region |
 | `pipeline/border_check.py` | check across regions that no border way was lost |
 | `pipeline/join_planet.py` | group region tilesets by continent, merge and tile the stations, tile-join each |
+| `pipeline/zstd_tiles.py` | rewrite a joined archive with zstd tiles |
 | `pipeline/diff_tiles.py` | per-tile content hashes and the change list between two builds |
 | `pipeline/stations.py` | station points and the services that call at each |
 | `pipeline/night.py` | decide the night trains across regions and write their list |
@@ -26,6 +27,12 @@ cache (see [Incremental updates](#incremental-updates)).
 
 ## Output
 
+- Tiles are MVT, each compressed as one zstd level-19 frame with no
+  dictionary (PMTiles `tile_compression` 4). Directories and metadata stay
+  gzip. tippecanoe and tile-join write only gzip, so the join rewrites each
+  continent archive afterwards (`zstd_tiles.py`); region archives stay gzip.
+  zstd is about 4% smaller than gzip on these tiles. Manifest schema 4 marks
+  the switch.
 - z2–z16 `rail` layer. Below z12: merged chains carrying source spans.
   z12 and up: raw OSM ways.
 - z9–z14 `stations` layer (schema 3): one point per station, see
@@ -135,7 +142,10 @@ fetch → filter → tile → verify, skipping regions whose extract is unchange
 (md5-keyed cache). Then `join_planet.py` tile-joins per continent into
 `<continent>-<date>.pmtiles`, all published to a dated Release, and the manifest
 at `latest` lists them with bounds. A smoke run (dispatch with a `regions` list)
-builds an artifact and does not publish. The build tolerates a region failing:
+builds an artifact and does not publish. A test run (dispatch with a
+`test_tag`) builds the whole world and publishes it as a prerelease under that
+tag, with its own `manifest.json`; it leaves `latest` and the prune alone, and
+its release stays until deleted by hand. The build tolerates a region failing:
 `fail-fast: false` and the join runs on partial success.
 
 ## Incremental updates
@@ -150,7 +160,8 @@ previous build:
 | `<continent>-<tag>.hashes` | build-internal | tileId → 8-byte content hash for every tile. Binary, ~3 MB (Australia) to ~27 MB (Europe). |
 | `<continent>-<tag>.changed` | client | gzipped JSON `{from, to, region, counts, tiles:[[z,x,y]…]}`. A few KB up to ~40 KB (Europe). |
 
-`diff_tiles.py` hashes each joined archive and compares against the previous
+`diff_tiles.py` hashes each joined archive's decompressed tiles, so neither
+the codec nor the zstd version changes a hash, and compares against the previous
 build's `.hashes` (downloaded from the prior release, never the multi-GB
 archive). The manifest gains `tag`, `baseUrl`, and `builds` (recent dated tags,
 oldest→newest, the last 26 builds). A client finds its last-seen tag in
@@ -160,7 +171,10 @@ continent stale and refetches it lazily. The window is half a year at weekly
 cadence because the app ships a low-zoom seed stamped with a build tag and
 chains it forward from there, so it has to stay inside the window for the life
 of an app release. The first build after this shipped has no prior `.hashes`, so
-it publishes hashes only; change lists begin one build later.
+it publishes hashes only; change lists begin one build later. The same holds for
+the first zstd build: the hashes before it covered the stored gzip bytes, so
+`diff_tiles.py` refuses to compare them, and the schema bump has the app start
+fresh anyway.
 
 Releases are permanent: GitHub keeps a release and its assets until deleted, so
 old `.changed` stay fetchable and the chain is only bounded by the `builds` cap.
@@ -178,7 +192,8 @@ make verify R=switzerland  # run the gates on it
 make join                  # tile-join the sample builds
 ```
 
-Needs `osmium`, `tippecanoe`, `tile-join`, `tippecanoe-decode`, Python 3.
+Needs `osmium`, `tippecanoe`, `tile-join`, `tippecanoe-decode`, Python 3.14+
+(for `compression.zstd`).
 Regenerate the region matrix with
 `python3 pipeline/gen_regions.py index-v1.json > pipeline/regions.json`.
 
