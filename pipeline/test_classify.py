@@ -53,7 +53,7 @@ class WireUnderConstruction(unittest.TestCase):
     def test_line_in_service_shows_the_system_being_put_up(self):
         self.assertEqual(C.lifecycle(ORBE), "present")
         self.assertEqual(C.electrification_state(ORBE), "construction")
-        self.assertEqual(C.elec_system(ORBE), "ac15000@16.7")
+        self.assertEqual(C.elec_system(ORBE), "construction:ac15000@16.7")
         rec = C.emit_props(ORBE, None)
         self.assertEqual((rec["elec"], rec["voltage"], rec["frequency"]), ("construction", 15000.0, 16.7))
 
@@ -76,6 +76,14 @@ class WireUnderConstruction(unittest.TestCase):
         p = {"railway": "rail", "electrified": "contact_line", "voltage": "750", "frequency": "0",
              "construction:electrified": "contact_line", "construction:voltage": "15000"}
         self.assertEqual((C.electrification_state(p), C.supply(p)), ("electrified", (750.0, 0.0)))
+
+    def test_wire_going_up_does_not_chain_with_wire_in_place(self):
+        wired = {"railway": "rail", "usage": "main", "electrified": "contact_line",
+                 "voltage": "15000", "frequency": "16.7"}
+        building = dict(wired, electrified="construction")
+        self.assertNotEqual(C.render_key(wired), C.render_key(building))
+        self.assertNotEqual(C.render_key({"railway": "rail", "electrified": "contact_line"}),
+                            C.render_key({"railway": "rail", "electrified": "construction"}))
 
     def test_planned_electrification_alone_leaves_the_line_unelectrified(self):
         p = {"railway": "rail", "electrified": "no", "proposed:electrified": "contact_line",

@@ -182,14 +182,16 @@ def first_num(raw):
 
 
 def elec_system(p):
-    """Detailed electrification identity for the merge key only (not emitted)."""
-    if electrification_state(p) in ("non_electrified", "unknown"):
+    """Detailed electrification identity for the merge key only (not emitted).
+    Wire under construction keys apart from wire in place, since the app
+    dashes one and not the other: sections in series stay separate chains."""
+    state = electrification_state(p)
+    if state in ("non_electrified", "unknown"):
         plan = proposed_supply(p)
-        return electrification_state(p) + (f"+proposed:{plan}" if plan else "")
+        return state + (f"+proposed:{plan}" if plan else "")
     v, f = supply(p)
-    if v is None:
-        return "elec-unknown"
-    return f"{'dc' if f == 0 else 'ac'}{int(v)}@{f}"
+    system = "elec-unknown" if v is None else f"{'dc' if f == 0 else 'ac'}{int(v)}@{f}"
+    return system if state == "electrified" else f"{state}:{system}"
 
 
 def gauges_of(p):
