@@ -4,7 +4,8 @@ Build one region's PMTiles pyramid (steps 2-5 of the pipeline).
 
   load    osmium export the filtered .pbf to GeoJSON-seq linestrings, plus
           line colours from the route relations kept beside them
-  chain   join non-service ways end-to-end for z2-z11 (once; rule 3)
+  chain   join ways end-to-end for z2-z11 (once; rule 3), service track only
+          where a route runs over it
   per z   simplify at the band tolerance, collapse parallel track, emit GeoJSON
   tile    one tippecanoe pass per zoom (-Z z -z z), then tile-join
   station one tippecanoe pass for the `stations` point layer (stations.py),
@@ -90,6 +91,20 @@ def load(pbf):
         if rs:
             w["props"][C.ROUTE_SET] = rs
     return ways, (lat_sum / lat_n if lat_n else 0.0), opl
+
+
+def low_zoom_ways(ways):
+    """The ways chained for z2-z11: no service track (rule 2) except where a
+    route runs over it. The app draws a highlighted route from the ways the
+    tiles hold, so a passing loop tagged as a siding would leave a gap."""
+    return [w for w in ways if not C.is_service(w["props"]) or w["props"].get(C.ROUTE_SET)]
+
+
+def low_zoom_key(p):
+    """Chain key for z2-z11. Service track never chains or collapses with the
+    line beside it: the merged feature would take one member's `service` tag,
+    and the app hides service track by default."""
+    return C.render_key(p), C.is_service(p)
 
 
 def feature(coords, props_rec):
@@ -318,19 +333,20 @@ def main():
         if before and (before - len(ways)) / before > partition.MAX_DROP:
             sys.exit(f"[{args.name}] PARTITION FAIL: would leave {before - len(ways):,} of "
                      f"{before:,} ways to neighbours; a boundary is likely wrong.")
-    nonservice = [w for w in ways if not C.is_service(w["props"])]
-    print(f"[{args.name}] {len(ways):,} ways ({len(nonservice):,} non-service), "
-          f"mean lat {mean_lat:.1f}", file=sys.stderr)
+    low = low_zoom_ways(ways)
+    routed = sum(1 for w in low if C.is_service(w["props"]))
+    print(f"[{args.name}] {len(ways):,} ways ({len(low) - routed:,} non-service, "
+          f"{routed:,} service on a route), mean lat {mean_lat:.1f}", file=sys.stderr)
 
     # chain once for the low bands; raw ways carry a self-referential src
-    chains = G.chain(nonservice, C.render_key, C.speed_of, C.band_of)
+    chains = G.chain(low, low_zoom_key, C.speed_of, C.band_of)
     print(f"[{args.name}] chained -> {len(chains):,} polylines", file=sys.stderr)
 
     # Per-segment attributes for the chained low zooms, computed once and reused
     # across zooms; each zoom LOD-merges short runs and splits into homogeneous
     # sub-chains (segment_chain). On raw ways (z12+) attributes are the way's own.
     import math
-    id2props = {w["id"]: w["props"] for w in nonservice}
+    id2props = {w["id"]: w["props"] for w in low}
     cos_lat = math.cos(math.radians(mean_lat))
     for ch in chains:
         ch["seg_attrs"] = seg_attrs(ch, cos_lat, id2props)

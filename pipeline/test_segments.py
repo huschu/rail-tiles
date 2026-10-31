@@ -10,7 +10,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import classify as C
 import geometry as G
-from build_region import seg_attrs, segment_chain
+from build_region import low_zoom_key, low_zoom_ways, seg_attrs, segment_chain
 
 LAT = 48.0
 M = 1 / 111320.0  # degrees of latitude per metre
@@ -160,6 +160,24 @@ class RouteSplit(unittest.TestCase):
                 way("wC", 5020, 10000)]
         subs = segment_chain(chained(ways), 5, LAT)
         self.assertEqual([set(s["src"]) for s in subs], [{"wA"}, {"wB"}, {"wC"}])
+
+
+class RoutedServiceTrack(unittest.TestCase):
+    """Below z12 only service track a route runs over is kept, so a route over
+    a passing loop tagged as a siding has no gap there."""
+
+    def test_only_service_track_on_a_route_is_kept(self):
+        ways = [way("wM", 0, 3000), way("wS", 0, 3000, service="siding"),
+                way("wR", 0, 3000, service="siding", **{C.ROUTE_SET: frozenset({"r1"})})]
+        self.assertEqual([w["id"] for w in low_zoom_ways(ways)], ["wM", "wR"])
+
+    def test_a_routed_siding_never_chains_into_the_line(self):
+        # Same render key and end to end: only the service flag keeps them apart.
+        ways = [way("wM", 0, 3000), way("wR", 3000, 6000, service="siding",
+                                         **{C.ROUTE_SET: frozenset({"r1"})})]
+        self.assertEqual(C.render_key(ways[0]["props"]), C.render_key(ways[1]["props"]))
+        chains = G.chain(ways, low_zoom_key, C.speed_of, C.band_of)
+        self.assertEqual(sorted(set(ch["src"]) for ch in chains), [{"wM"}, {"wR"}])
 
 
 if __name__ == "__main__":

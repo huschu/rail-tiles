@@ -12,7 +12,8 @@ MIN_ZOOM = 2      # z2 = 16 world tiles: a full-globe overview, heavily generali
 MAX_ZOOM = 16
 
 CHAIN_MAX_ZOOM = 11      # chain z2-z11, raw ways from z12 (rule 3)
-SERVICE_MIN_ZOOM = 12    # service track only from z12 (rule 2)
+SERVICE_MIN_ZOOM = 12    # service track only from z12 (rule 2), but
+                         # for track a route runs over
 COLLAPSE_MAX_ZOOM = 14   # collapse off from z15 up (double track resolves)
 
 _TOL_PX = 0.8            # DP tolerance in pixels

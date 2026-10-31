@@ -35,6 +35,11 @@ cache (see [Incremental updates](#incremental-updates)).
   `gauge_class`, `gauge_mm`, `gauge_mm_list`, `maxspeed`, `train_protection`, `tp_rank`,
   `radio`, `traffic_mode`, `colour`, `tunnel`, `bridge`, `name`, `ref`, `osm_id`, `src`,
   `absorbed` (ways a parallel collapse deleted beside this track, `w1;w2`).
+- Service track (`service=*`) appears from z12, except where a route runs over
+  it, such as a passing loop tagged as a siding. That track is in every zoom.
+  The app draws a highlighted route from the ways in the tiles, so it would
+  otherwise show a gap there below z12. Such track keeps its `service` tag and
+  never merges with the line beside it.
 - `kind` includes funicular; `lifecycle` includes preserved and razed.
   Construction and proposed lines read their prefixed tags
   (`construction:electrified`, `proposed:maxspeed`, ...) so they carry planned
