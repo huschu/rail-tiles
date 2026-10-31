@@ -140,6 +140,20 @@ def electrification_state(p):
     return "unknown"
 
 
+def supply(p):
+    """Voltage and frequency, as numbers. While the wire goes up on a line in
+    service (electrified=construction), the future system is the one to show,
+    and it is tagged under construction: or proposed: like a new line's."""
+    def get(key):
+        if lifecycle(p) == "present" and _get(p, "electrified") == "construction":
+            for pre in _VALUE_PREFIXES["construction"]:
+                v = p.get(pre + key)
+                if v is not None:
+                    return v
+        return _get(p, key)
+    return first_num(get("voltage")), first_num(get("frequency"))
+
+
 def first_num(raw):
     if not raw:
         return None
@@ -153,7 +167,7 @@ def elec_system(p):
     """Detailed electrification identity for the merge key only (not emitted)."""
     if electrification_state(p) in ("non_electrified", "unknown"):
         return electrification_state(p)
-    v, f = first_num(_get(p, "voltage")), first_num(_get(p, "frequency"))
+    v, f = supply(p)
     if v is None:
         return "elec-unknown"
     return f"{'dc' if f == 0 else 'ac'}{int(v)}@{f}"
@@ -263,7 +277,7 @@ def emit_props(p, maxspeed, osm_id=None, src=None, tunnel=False, bridge=False,
         rec["service"] = p["service"]
     if maxspeed is not None:
         rec["maxspeed"] = int(maxspeed)
-    v, f = first_num(_get(p, "voltage")), first_num(_get(p, "frequency"))
+    v, f = supply(p)
     if v is not None:
         rec["voltage"] = v
     if f is not None:

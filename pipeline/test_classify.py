@@ -43,5 +43,32 @@ class LifecyclePrefixes(unittest.TestCase):
         self.assertEqual(C.electrification_state(p), "non_electrified")
 
 
+# Orbe-Chavornay: in service, its wire being replaced by 15 kV AC.
+ORBE = {"railway": "rail", "usage": "branch", "electrified": "construction",
+        "proposed:electrified": "contact_line", "proposed:voltage": "15000",
+        "proposed:frequency": "16.7"}
+
+
+class WireUnderConstruction(unittest.TestCase):
+    def test_line_in_service_shows_the_system_being_put_up(self):
+        self.assertEqual(C.lifecycle(ORBE), "present")
+        self.assertEqual(C.electrification_state(ORBE), "construction")
+        self.assertEqual(C.elec_system(ORBE), "ac15000@16.7")
+        rec = C.emit_props(ORBE, None)
+        self.assertEqual((rec["elec"], rec["voltage"], rec["frequency"]), ("construction", 15000.0, 16.7))
+
+    def test_future_system_wins_over_the_current_one(self):
+        self.assertEqual(C.supply(dict(ORBE, voltage="750", frequency="0")), (15000.0, 16.7))
+
+    def test_plain_tags_still_count_without_a_prefixed_system(self):
+        p = {"railway": "rail", "electrified": "construction", "voltage": "25000", "frequency": "50"}
+        self.assertEqual(C.supply(p), (25000.0, 50.0))
+
+    def test_planned_electrification_alone_leaves_the_line_unelectrified(self):
+        p = {"railway": "rail", "electrified": "no", "proposed:electrified": "contact_line",
+             "proposed:voltage": "15000"}
+        self.assertEqual(C.supply(p), (None, None))
+
+
 if __name__ == "__main__":
     unittest.main()
