@@ -110,12 +110,18 @@ def parse_speed(raw):
     return None
 
 
-def speed_of(p):
+def _reader(p, prefix):
+    """Tag lookup: by the lifecycle rules of `_get`, or under one prefix only."""
+    return (lambda key: _get(p, key)) if prefix is None else (lambda key: p.get(prefix + key))
+
+
+def speed_of(p, prefix=None):
     """Line speed in km/h, falling back to maxspeed:forward/:backward (higher)."""
-    v = parse_speed(_get(p, "maxspeed"))
+    get = _reader(p, prefix)
+    v = parse_speed(get("maxspeed"))
     if v is not None:
         return v
-    dirs = [parse_speed(_get(p, "maxspeed:forward")), parse_speed(_get(p, "maxspeed:backward"))]
+    dirs = [parse_speed(get("maxspeed:forward")), parse_speed(get("maxspeed:backward"))]
     dirs = [x for x in dirs if x is not None]
     return max(dirs) if dirs else None
 
@@ -194,8 +200,8 @@ def elec_system(p):
     return system if state == "electrified" else f"{state}:{system}"
 
 
-def gauges_of(p):
-    g = _get(p, "gauge")
+def gauges_of(p, prefix=None):
+    g = _reader(p, prefix)("gauge")
     if not g:
         return []
     return [x.strip() for x in str(g).split(";") if x.strip()]
@@ -247,7 +253,13 @@ def colour_of(p):
 
 
 def protection_of(p):
-    return protection.train_protection(p, _pfx(p))
+    """Like `_get`: a line under construction tries construction:, then
+    proposed:, then the plain keys; a proposed line proposed:, then plain."""
+    for pre in _VALUE_PREFIXES.get(lifecycle(p), ()) + ("",):
+        hit = protection.train_protection(p, pre)
+        if hit != protection.NO_MATCH:
+            return hit
+    return protection.NO_MATCH
 
 
 STAGES = ("construction", "proposed")
@@ -255,35 +267,24 @@ STAGES = ("construction", "proposed")
 
 def _change(p, read, current):
     """(stage, value) of a change to a line in service: the value tagged under
-    construction:, else under proposed:, when it differs from the current
-    one. None for lines not in service, which show their future values
-    through the lifecycle prefixes already."""
+    construction:, else under proposed:, that differs from the current one.
+    None for lines not in service, which show their future values through
+    the lifecycle prefixes already."""
     if lifecycle(p) != "present":
         return None
     for stage in STAGES:
         v = read(stage + ":")
-        if v is not None:
-            return (stage, v) if v != current else None
+        if v is not None and v != current:
+            return stage, v
     return None
 
 
 def speed_change(p):
-    def read(pre):
-        v = parse_speed(p.get(pre + "maxspeed"))
-        if v is not None:
-            return v
-        dirs = [parse_speed(p.get(pre + "maxspeed:forward")), parse_speed(p.get(pre + "maxspeed:backward"))]
-        dirs = [x for x in dirs if x is not None]
-        return max(dirs) if dirs else None
-    return _change(p, read, speed_of(p))
+    return _change(p, lambda pre: speed_of(p, pre), speed_of(p))
 
 
 def gauge_change(p):
-    def read(pre):
-        g = p.get(pre + "gauge")
-        gs = [x.strip() for x in str(g).split(";") if x.strip()] if g else []
-        return gs or None
-    return _change(p, read, gauges_of(p))
+    return _change(p, lambda pre: gauges_of(p, pre) or None, gauges_of(p))
 
 
 def protection_change(p):
@@ -292,17 +293,28 @@ def protection_change(p):
     def read(pre):
         hit = protection.train_protection(p, pre)
         return hit if hit[0] not in (None, "none") else None
-    change = _change(p, read, None)
-    if change and change[1][0] == protection_of(p)[0]:
-        return None
-    return change
+    return _change(p, read, protection_of(p))
+
+
+# Set on a way's props by `changes`; never an OSM key.
+CHANGES = "_changes"
+
+
+def changes(p):
+    """(speed, gauge, protection) changes of a way, computed once: the merge
+    key reads them while chaining and emit_props on every zoom pass, and the
+    protection match is the expensive part. A copy of p made after the first
+    call keeps the cached value, so build a new dict instead of copying."""
+    if CHANGES not in p:
+        p[CHANGES] = (speed_change(p), gauge_change(p), protection_change(p))
+    return p[CHANGES]
 
 
 def change_key(p):
     """What the map draws of the changes, for the merge key: a chain must not
     run from a stretch with a change onto one without, or across a change
     to a different speed band, gauge class or system."""
-    sc, gc, pc = speed_change(p), gauge_change(p), protection_change(p)
+    sc, gc, pc = changes(p)
     return (sc and (sc[0], band_of(sc[1])),
             gc and (gc[0], "multi" if len(gc[1]) > 1 else gc[1][0]),
             pc and (pc[0], pc[1][0]))
@@ -388,7 +400,7 @@ def emit_props(p, maxspeed, osm_id=None, src=None, tunnel=False, bridge=False,
     if protection and protection[0]:
         rec["train_protection"], rec["tp_rank"] = protection
     # Changes on a line in service; p is homogeneous in them (change_key).
-    sc, gc, pc = speed_change(p), gauge_change(p), protection_change(p)
+    sc, gc, pc = changes(p)
     if sc:
         rec[f"maxspeed_{sc[0]}"] = sc[1]
     if gc:

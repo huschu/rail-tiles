@@ -167,9 +167,23 @@ class ChangesOnLinesInService(unittest.TestCase):
         self.assertNotIn("maxspeed_construction", rec)
 
     def test_chains_do_not_run_across_a_change(self):
-        base = dict(self.LINE)
-        self.assertNotEqual(C.render_key(base), C.render_key(dict(base, **{"proposed:maxspeed": "250"})))
-        self.assertNotEqual(C.render_key(dict(base, **{"proposed:maxspeed": "250"})),
-                            C.render_key(dict(base, **{"construction:maxspeed": "250"})))
-        self.assertEqual(C.render_key(dict(base, **{"proposed:maxspeed": "230"})),
-                         C.render_key(dict(base, **{"proposed:maxspeed": "250"})), "same band merges")
+        def key(**tags):
+            return C.render_key(dict(self.LINE, **tags))
+        self.assertNotEqual(key(), key(**{"proposed:maxspeed": "250"}))
+        self.assertNotEqual(key(**{"proposed:maxspeed": "250"}), key(**{"construction:maxspeed": "250"}))
+        self.assertEqual(key(**{"proposed:maxspeed": "230"}), key(**{"proposed:maxspeed": "250"}),
+                         "same band merges")
+
+    def test_an_unchanged_construction_value_lets_the_proposed_one_through(self):
+        rec = self.rec(**{"construction:maxspeed": "160", "proposed:maxspeed": "250",
+                          "construction:railway:pzb": "yes", "proposed:railway:etcs": "2"})
+        self.assertEqual((rec["maxspeed_proposed"], rec["tp_proposed"]), (250, "etcs_2"))
+
+    def test_new_line_reads_protection_like_its_other_tags(self):
+        new = {"railway": "construction", "construction:railway": "rail"}
+        for tags in ({"proposed:railway:etcs": "2"}, {"railway:etcs": "2"}):
+            self.assertEqual(C.protection_of(dict(new, **tags))[0], "etcs_2", tags)
+        both = dict(new, **{"construction:railway:etcs": "1", "proposed:railway:etcs": "2"})
+        self.assertEqual(C.protection_of(both)[0], "etcs_1")
+        self.assertEqual(C.protection_of({"railway": "rail", "proposed:railway:etcs": "2"}), (None, None),
+                         "a line in service shows its proposal as a change, not its system")
