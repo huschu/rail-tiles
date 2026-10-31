@@ -5,7 +5,7 @@
 #   make test                  unit tests for chain attributes, no data needed
 #   make build R=switzerland   build one sample region -> build/switzerland.pmtiles
 #   make verify R=switzerland  run gates 2-5 on it
-#   make join                  tile-join a few sample regions -> build/europe.pmtiles
+#   make join                  tile-join the sample regions, zstd tiles -> build/europe.pmtiles
 #   make all                   build + verify every sample region
 
 R ?= switzerland
@@ -39,7 +39,9 @@ all: $(BUILD)
 	done
 
 join: $(BUILD)
-	tile-join -o $(BUILD)/europe.pmtiles --no-tile-size-limit --force $(BUILD)/*.pmtiles
+	tile-join -o $(BUILD)/europe.gzip.pmtiles --no-tile-size-limit --force $(filter-out $(BUILD)/europe%,$(wildcard $(BUILD)/*.pmtiles))
+	python3 pipeline/zstd_tiles.py $(BUILD)/europe.gzip.pmtiles $(BUILD)/europe.pmtiles
+	rm $(BUILD)/europe.gzip.pmtiles
 	ls -la $(BUILD)/europe.pmtiles
 
 clean:
