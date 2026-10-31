@@ -172,7 +172,7 @@ cadence because the app ships a low-zoom seed stamped with a build tag and
 chains it forward from there, so it has to stay inside the window for the life
 of an app release. The first build after this shipped has no prior `.hashes`, so
 it publishes hashes only; change lists begin one build later. The same holds for
-the first zstd build: the hashes before it covered the stored gzip bytes, so
+the first zstd build. The hashes before it covered the stored gzip bytes, so
 `diff_tiles.py` refuses to compare them, and the schema bump has the app start
 fresh anyway.
 

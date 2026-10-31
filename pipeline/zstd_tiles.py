@@ -28,7 +28,7 @@ from concurrent.futures import ProcessPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from diff_tiles import Archive, decompress_tile
+from diff_tiles import Archive, _wv, decompress_tile
 
 LEVEL = 19
 ZSTD = 4
@@ -58,13 +58,6 @@ def entries(a, d=None):
             yield from entries(a, a._dir(a.leaf_off + off[k], ln[k]))
         else:
             yield ids[k], rl[k], off[k], ln[k]
-
-
-def _wv(out, n):
-    while True:
-        b = n & 0x7f; n >>= 7
-        out.append(b | 0x80 if n else b)
-        if not n: break
 
 
 def serialize(ents):
@@ -135,10 +128,13 @@ def recompress(src_path, out_path, workers=None):
                          sum(rl for _, rl, _, _ in ents), len(ents), len(blobs))
         head[98] = ZSTD
 
-        with open(out_path, "wb") as f:
+        # A crash leaves a .part file, never a truncated archive under the real name.
+        part = out_path + ".part"
+        with open(part, "wb") as f:
             f.write(head); f.write(root); f.write(meta); f.write(leaves)
             data.seek(0)
             shutil.copyfileobj(data, f, 1 << 20)
+        os.replace(part, out_path)
     print(f"zstd: {src_path} -> {out_path}  {os.path.getsize(src_path) / 1e6:.1f} -> "
           f"{os.path.getsize(out_path) / 1e6:.1f} MB ({len(blobs):,} tiles)", file=sys.stderr)
 

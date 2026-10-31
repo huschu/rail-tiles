@@ -54,6 +54,11 @@ jobs:
           if [[ "$TEST_TAG" =~ ^[0-9]{8}$ || "$TEST_TAG" == latest ]]; then
             echo "::error::test_tag must not be latest or look like a dated build tag"; exit 1
           fi
+          # The tag ends up in file names, globs and shell commands.
+          safe='^[A-Za-z0-9._-]*$'
+          if [[ ! "$TEST_TAG" =~ $safe ]]; then
+            echo "::error::test_tag may only hold letters, digits, '.', '_' and '-'"; exit 1
+          fi
           echo "tag=${TEST_TAG:-$(date -u +%Y%m%d)}" >> "$GITHUB_OUTPUT"
           echo "build_id=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 

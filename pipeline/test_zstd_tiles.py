@@ -88,6 +88,14 @@ class RecompressTests(unittest.TestCase):
         off, n = struct.unpack_from("<QQ", a.mm, 24)
         self.assertEqual(a.mm[off:off + n], META)
 
+    def test_header_keeps_everything_but_the_tile_codec(self):
+        a = self.recompress([(i, 1, f"t{i}".encode()) for i in range(50)])
+        with open(self.src, "rb") as f:
+            want = bytearray(f.read(127)[96:])
+        want[98 - 96] = 4
+        self.assertEqual(bytes(a.mm[96:127]), bytes(want))
+        self.assertFalse(os.path.exists(self.out + ".part"))
+
     def test_hashes_ignore_the_codec(self):
         from diff_tiles import cmd_hash, read_hashes
         self.recompress([(i, 1, f"t{i}".encode()) for i in range(50)])

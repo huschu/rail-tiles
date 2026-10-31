@@ -8,7 +8,7 @@ The planet ships as per-continent archives (a single file exceeds the 2 GB
 Releases limit). Each archive lists its geographic bounds, read straight from the
 PMTiles header, so the client loads only the archives overlapping the viewport.
 
-  schemaVersion  bump on any attribute-schema change -> client hard-purges
+  schemaVersion  bump on any attribute-schema or tile-format change -> client hard-purges
   buildId        fresh data, same schema -> client soft-purges
   osmTimestamp   the source extracts' own timestamp, shown as "data as of"
   nightTrains    {url, bytes} of the gzipped night-train list (night.py),
