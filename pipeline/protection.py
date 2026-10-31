@@ -1,43 +1,62 @@
 """
-Train protection classification, ported from OpenRailwayMap-vector's
-train_protection.yaml (vendored here as train_protection.json). A way can carry
-several systems (railway:etcs, railway:pzb, ...); we emit the most important one
-plus a rank for draw order.
-
-Matching mirrors ORM: a rule matches when all its tags match; a matched rule can
-exclude other systems (e.g. ktcs excludes etcs); a system already excluded by an
-earlier rule is skipped. "none" means every protection tag present is set to
-"no". The `prefix` handles construction:/proposed: lines.
+A way's train protection: the system it shows and that system's rank, from
+train_protection.json. gen_protection.py writes that file and explains which
+tags count and why one system outranks another.
 """
 import json
 import os
 
-_DATA = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                    "train_protection.json")))
-_ORDER = _DATA["order"]                       # most important first
-_FEATURES = _DATA["features"]
-_ORDER_INDEX = {s: i for i, s in enumerate(_ORDER)}
-_RANK = {s: len(_ORDER) - i for i, s in enumerate(_ORDER)}  # higher = more important
-_ALL_TAGS = {t["tag"] for f in _FEATURES for t in f["tags"]}
+NO_MATCH = (None, None)
 
 
-def train_protection(props, prefix=""):
-    """Return (system, rank) for a way's properties, or (None, None) if unknown.
-    prefix is '', 'construction:' or 'proposed:'."""
-    excluded = set()
-    matched = []
-    for f in _FEATURES:
-        sys = f["system"]
-        if sys in excluded:
+def load():
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "train_protection.json")) as f:
+        return json.load(f)
+
+
+def index(table):
+    """(best, keys, no_values, none) for a table in train_protection.json's
+    shape: best maps (tag, value) to the (id, rank) of the highest entry naming
+    it, keys holds every protection key, left-out ones included, and none is
+    the result for a way whose keys all say no. Results are shared tuples, so
+    the millions of segments a build keeps hold references, not copies."""
+    best = {}
+    for s in table["systems"]:
+        hit = (s["id"], s["rank"])
+        for t in s["tags"]:
+            for v in t["values"]:
+                key = (t["tag"], v)
+                if key not in best or hit[1] > best[key][1]:
+                    best[key] = hit
+    return best, frozenset(table["keys"]), frozenset(table["no_values"]), ("none", table["none_rank"])
+
+
+TABLE = load()
+_INDEX = index(TABLE)
+
+
+def train_protection(props, prefix="", idx=_INDEX):
+    """(system, rank) of the highest-ranked system the way is tagged with,
+    ("none", rank) when every protection key on it says "no", else
+    (None, None). prefix is '', 'construction:' or 'proposed:'; idx is an
+    index() result, the shipped table's unless a test passes its own."""
+    best, keys, no, none = idx
+    found, tagged, all_no = None, False, True
+    n = len(prefix)
+    for k, v in props.items():
+        if n:
+            if not k.startswith(prefix):
+                continue
+            k = k[n:]
+        if k not in keys:
             continue
-        if all(props.get(prefix + t["tag"]) in t["values"] for t in f["tags"]):
-            matched.append(sys)
-            excluded.update(f["exclude"])
-    if matched:
-        primary = min(matched, key=lambda s: _ORDER_INDEX.get(s, len(_ORDER)))
-        return primary, _RANK.get(primary)
-    present = [props.get(prefix + t) for t in _ALL_TAGS]
-    present = [v for v in present if v is not None]
-    if present and all(v == "no" for v in present):
-        return "none", _RANK.get("none")
-    return None, None
+        tagged = True
+        all_no = all_no and v in no
+        hit = best.get((k, v))
+        if hit and (found is None or hit[1] > found[1]):
+            found = hit
+    if found:
+        return found
+    if tagged and all_no:
+        return none
+    return NO_MATCH

@@ -1,1108 +1,861 @@
 {
-  "order": [
-    "etcs",
-    "etcs_1",
-    "etcs_2",
-    "ctcs",
-    "ctcs_2",
-    "ctcs_3",
-    "ktcs",
-    "ptc",
-    "tvm",
-    "kvb",
-    "nexteo",
-    "asfa",
-    "scmt",
-    "atc",
-    "eatc",
-    "atb",
-    "lzb",
-    "pzb",
-    "acses",
-    "ases",
-    "atms",
-    "als",
-    "atp",
-    "aws",
-    "caws",
-    "tcb",
-    "cbtc",
-    "ebicab",
-    "jkv",
-    "etms",
-    "evm",
-    "itcs",
-    "ls",
-    "octys",
-    "ouragan",
-    "sacem",
-    "saet",
-    "shp",
-    "ssc",
-    "ats",
-    "atacs",
-    "tbl",
-    "tmacs",
-    "tpws",
-    "zbs",
-    "zsi127",
-    "zsl90",
-    "zst90",
-    "zub",
-    "satp",
-    "twc",
-    "none"
-  ],
-  "features": [
-    {
-      "system": "ktcs",
-      "tags": [
-        {
-          "tag": "railway:ktcs",
-          "values": [
-            "yes",
-            "1",
-            "2",
-            "M"
-          ]
-        }
-      ],
-      "exclude": [
-        "etcs",
-        "etcs_1",
-        "etcs_2"
-      ]
-    },
-    {
-      "system": "etcs",
-      "tags": [
-        {
-          "tag": "railway:etcs",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "etcs_1",
-      "tags": [
-        {
-          "tag": "railway:etcs",
-          "values": [
-            "1"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "etcs_2",
-      "tags": [
-        {
-          "tag": "railway:etcs",
-          "values": [
-            "2"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "etcs_2",
-      "tags": [
-        {
-          "tag": "railway:etcs",
-          "values": [
-            "1;2"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "etcs_2",
-      "tags": [
-        {
-          "tag": "railway:etcs",
-          "values": [
-            "3"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "acses",
-      "tags": [
-        {
-          "tag": "railway:acses",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-        "ptc"
-      ]
-    },
-    {
-      "system": "ases",
-      "tags": [
-        {
-          "tag": "railway:ases",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-        "ptc"
-      ]
-    },
-    {
-      "system": "itcs",
-      "tags": [
-        {
-          "tag": "railway:itcs",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-        "ptc"
-      ]
-    },
-    {
-      "system": "etms",
-      "tags": [
-        {
-          "tag": "railway:etms",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-        "ptc"
-      ]
-    },
-    {
-      "system": "cbtc",
-      "tags": [
-        {
-          "tag": "railway:cbtc",
-          "values": [
-            "yes",
-            "uto",
-            "sto",
-            "dto",
-            "RF",
-            "IL"
-          ]
-        }
-      ],
-      "exclude": [
-        "ptc"
-      ]
-    },
-    {
-      "system": "ptc",
-      "tags": [
-        {
-          "tag": "railway:ptc",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "atc",
-      "tags": [
-        {
-          "tag": "railway:atc",
-          "values": [
-            "yes",
-            "CS",
-            "new-CS",
-            "D",
-            "DS",
-            "keio",
-            "KS",
-            "NS",
-            "P",
-            "TD",
-            "WS"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "eatc",
-      "tags": [
-        {
-          "tag": "railway:eatc",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "asfa",
-      "tags": [
-        {
-          "tag": "railway:asfa",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "asfa",
-      "tags": [
-        {
-          "tag": "railway:asfa_fac",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "asfa",
-      "tags": [
-        {
-          "tag": "railway:asfa_200",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "scmt",
-      "tags": [
-        {
-          "tag": "railway:scmt",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "tvm",
-      "tags": [
-        {
-          "tag": "railway:tvm",
-          "values": [
-            "300",
-            "430"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "nexteo",
-      "tags": [
-        {
-          "tag": "railway:nexteo",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "kvb",
-      "tags": [
-        {
-          "tag": "railway:kvb",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "atb",
-      "tags": [
-        {
-          "tag": "railway:atb",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "atb",
-      "tags": [
-        {
-          "tag": "railway:atb-eg",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "atb",
-      "tags": [
-        {
-          "tag": "railway:atb-ng",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "atb",
-      "tags": [
-        {
-          "tag": "railway:atb-vv",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "atms",
-      "tags": [
-        {
-          "tag": "railway:atms",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "zsi127",
-      "tags": [
-        {
-          "tag": "railway:zsi127",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "lzb",
-      "tags": [
-        {
-          "tag": "railway:lzb",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "pzb",
-      "tags": [
-        {
-          "tag": "railway:pzb",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "als",
-      "tags": [
-        {
-          "tag": "railway:als",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "als",
-      "tags": [
-        {
-          "tag": "railway:alsn",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "als",
-      "tags": [
-        {
-          "tag": "railway:alst",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "als",
-      "tags": [
-        {
-          "tag": "railway:also",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "als",
-      "tags": [
-        {
-          "tag": "railway:als-en",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "als",
-      "tags": [
-        {
-          "tag": "railway:alsr",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "als",
-      "tags": [
-        {
-          "tag": "railway:als-ars",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "als",
-      "tags": [
-        {
-          "tag": "railway:integra_signum:ALS",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "als",
-      "tags": [
-        {
-          "tag": "railway:integra_signum:ALSO",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "atp",
-      "tags": [
-        {
-          "tag": "railway:atp",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "aws",
-      "tags": [
-        {
-          "tag": "railway:aws",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "caws",
-      "tags": [
-        {
-          "tag": "railway:caws",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "tcb",
-      "tags": [
-        {
-          "tag": "railway:tcb",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "ctcs",
-      "tags": [
-        {
-          "tag": "railway:ctcs",
-          "values": [
-            "yes",
-            "0",
-            "1"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "ctcs_2",
-      "tags": [
-        {
-          "tag": "railway:ctcs",
-          "values": [
-            "2"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "ctcs_3",
-      "tags": [
-        {
-          "tag": "railway:ctcs",
-          "values": [
-            "3",
-            "3D",
-            "4"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "ebicab",
-      "tags": [
-        {
-          "tag": "railway:ebicab",
-          "values": [
-            "yes",
-            "700",
-            "900"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "jkv",
-      "tags": [
-        {
-          "tag": "railway:jkv",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "evm",
-      "tags": [
-        {
-          "tag": "railway:evm",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "ls",
-      "tags": [
-        {
-          "tag": "railway:ls",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "octys",
-      "tags": [
-        {
-          "tag": "railway:octys",
-          "values": [
-            "yes",
-            "1",
-            "2",
-            "3"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "ouragan",
-      "tags": [
-        {
-          "tag": "railway:ouragan",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "sacem",
-      "tags": [
-        {
-          "tag": "railway:sacem",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "saet",
-      "tags": [
-        {
-          "tag": "railway:saet",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "shp",
-      "tags": [
-        {
-          "tag": "railway:shp",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "ssc",
-      "tags": [
-        {
-          "tag": "railway:ssc",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "ats",
-      "tags": [
-        {
-          "tag": "railway:ats",
-          "values": [
-            "yes",
-            "B",
-            "Dx",
-            "S",
-            "S1",
-            "S2",
-            "S1;S2",
-            "Sx",
-            "P",
-            "Ps"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "atacs",
-      "tags": [
-        {
-          "tag": "railway:atacs",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "tbl",
-      "tags": [
-        {
-          "tag": "railway:tbl",
-          "values": [
-            "yes",
-            "1",
-            "1+",
-            "2"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "tmacs",
-      "tags": [
-        {
-          "tag": "railway:tmacs",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "tpws",
-      "tags": [
-        {
-          "tag": "railway:tpws",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "zbs",
-      "tags": [
-        {
-          "tag": "railway:zbs",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "zsl90",
-      "tags": [
-        {
-          "tag": "railway:zsl90",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "zst90",
-      "tags": [
-        {
-          "tag": "railway:zst90",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "zub",
-      "tags": [
-        {
-          "tag": "railway:zub",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "zub",
-      "tags": [
-        {
-          "tag": "railway:zub121",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "zub",
-      "tags": [
-        {
-          "tag": "railway:zub122",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "zub",
-      "tags": [
-        {
-          "tag": "railway:zub123",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "zub",
-      "tags": [
-        {
-          "tag": "railway:zub222c",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "satp",
-      "tags": [
-        {
-          "tag": "railway:satp",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "satp",
-      "tags": [
-        {
-          "tag": "railway:atp3b",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "satp",
-      "tags": [
-        {
-          "tag": "railway:atp4b",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
-    },
-    {
-      "system": "twc",
-      "tags": [
-        {
-          "tag": "railway:twc",
-          "values": [
-            "yes"
-          ]
-        }
-      ],
-      "exclude": [
-
-      ]
+ "none_rank": 1,
+ "no_values": [
+  "no",
+  "none"
+ ],
+ "keys": [
+  "railway:acses",
+  "railway:als",
+  "railway:als-ars",
+  "railway:alsn",
+  "railway:alsn-en",
+  "railway:ari",
+  "railway:asfa",
+  "railway:asfa_200",
+  "railway:atacs",
+  "railway:atb",
+  "railway:atb-eg",
+  "railway:atb-ng",
+  "railway:atc",
+  "railway:atms",
+  "railway:atp",
+  "railway:atp3b",
+  "railway:ats",
+  "railway:avr",
+  "railway:aws",
+  "railway:caws",
+  "railway:cbtc",
+  "railway:crocodile",
+  "railway:ctcs",
+  "railway:dtc",
+  "railway:eatc",
+  "railway:ebicab",
+  "railway:etcs",
+  "railway:etms",
+  "railway:evm",
+  "railway:gnt",
+  "railway:integra_signum:ALS",
+  "railway:integra_signum:ALSN",
+  "railway:integra_signum:ALSO",
+  "railway:integra_signum:als",
+  "railway:itcs",
+  "railway:jkv",
+  "railway:kcvb",
+  "railway:kcvp",
+  "railway:ktcs",
+  "railway:kvb",
+  "railway:kvbp",
+  "railway:ls",
+  "railway:lzb",
+  "railway:memor",
+  "railway:nexteo",
+  "railway:octys",
+  "railway:ouragan",
+  "railway:pa-135",
+  "railway:ptc",
+  "railway:pzb",
+  "railway:sacem",
+  "railway:saet",
+  "railway:scmt",
+  "railway:shp",
+  "railway:ssc",
+  "railway:tbl",
+  "railway:tcb",
+  "railway:tmacs",
+  "railway:tpws",
+  "railway:train_protection",
+  "railway:tvm",
+  "railway:twc",
+  "railway:urbalis",
+  "railway:zbs",
+  "railway:zsi127",
+  "railway:zsi90",
+  "railway:zsl90",
+  "railway:zst90",
+  "railway:zub",
+  "railway:zub122",
+  "railway:zub123",
+  "railway:zub222c"
+ ],
+ "systems": [
+  {
+   "id": "atacs",
+   "tags": [
+    {
+     "tag": "railway:atacs",
+     "values": [
+      "yes"
+     ]
     }
-  ]
+   ],
+   "order_ways": 99,
+   "rank": 51
+  },
+  {
+   "id": "ouragan",
+   "tags": [
+    {
+     "tag": "railway:ouragan",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 128,
+   "rank": 50
+  },
+  {
+   "id": "saet",
+   "tags": [
+    {
+     "tag": "railway:saet",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 179,
+   "rank": 49
+  },
+  {
+   "id": "eatc",
+   "tags": [
+    {
+     "tag": "railway:eatc",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 413,
+   "rank": 48
+  },
+  {
+   "id": "octys",
+   "tags": [
+    {
+     "tag": "railway:octys",
+     "values": [
+      "1",
+      "2",
+      "3",
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 523,
+   "rank": 47
+  },
+  {
+   "id": "itcs",
+   "tags": [
+    {
+     "tag": "railway:itcs",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 540,
+   "rank": 46
+  },
+  {
+   "id": "nexteo",
+   "tags": [
+    {
+     "tag": "railway:nexteo",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 826,
+   "rank": 45
+  },
+  {
+   "id": "sacem",
+   "tags": [
+    {
+     "tag": "railway:sacem",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 895,
+   "rank": 44
+  },
+  {
+   "id": "ktcs",
+   "tags": [
+    {
+     "tag": "railway:ktcs",
+     "values": [
+      "1",
+      "2",
+      "M"
+     ]
+    }
+   ],
+   "order_ways": 3465,
+   "rank": 43
+  },
+  {
+   "id": "etcs",
+   "tags": [
+    {
+     "tag": "railway:etcs",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 4286,
+   "rank": 42
+  },
+  {
+   "id": "cbtc",
+   "tags": [
+    {
+     "tag": "railway:cbtc",
+     "values": [
+      "yes",
+      "sto",
+      "RF",
+      "uto",
+      "dto",
+      "IL"
+     ]
+    },
+    {
+     "tag": "railway:urbalis",
+     "values": [
+      "200"
+     ]
+    }
+   ],
+   "order_ways": 14097,
+   "rank": 41
+  },
+  {
+   "id": "acses",
+   "tags": [
+    {
+     "tag": "railway:acses",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 16141,
+   "rank": 40
+  },
+  {
+   "id": "ctcs_2",
+   "tags": [
+    {
+     "tag": "railway:ctcs",
+     "values": [
+      "2"
+     ]
+    }
+   ],
+   "order_ways": 17516,
+   "rank": 39
+  },
+  {
+   "id": "ctcs_3",
+   "tags": [
+    {
+     "tag": "railway:ctcs",
+     "values": [
+      "3"
+     ]
+    }
+   ],
+   "order_ways": 25677,
+   "rank": 38
+  },
+  {
+   "id": "etms",
+   "tags": [
+    {
+     "tag": "railway:etms",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 31448,
+   "rank": 37
+  },
+  {
+   "id": "etcs_1",
+   "tags": [
+    {
+     "tag": "railway:etcs",
+     "values": [
+      "1"
+     ]
+    }
+   ],
+   "order_ways": 70736,
+   "rank": 36
+  },
+  {
+   "id": "ptc",
+   "tags": [
+    {
+     "tag": "railway:ptc",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 93822,
+   "rank": 35
+  },
+  {
+   "id": "etcs_2",
+   "tags": [
+    {
+     "tag": "railway:etcs",
+     "values": [
+      "2",
+      "1;2",
+      "3"
+     ]
+    }
+   ],
+   "order_ways": 105791,
+   "rank": 34
+  },
+  {
+   "id": "zst90",
+   "tags": [
+    {
+     "tag": "railway:zst90",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 18,
+   "rank": 33
+  },
+  {
+   "id": "atms",
+   "tags": [
+    {
+     "tag": "railway:atms",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 50,
+   "rank": 32
+  },
+  {
+   "id": "zsl90",
+   "tags": [
+    {
+     "tag": "railway:zsl90",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 198,
+   "rank": 31
+  },
+  {
+   "id": "tmacs",
+   "tags": [
+    {
+     "tag": "railway:tmacs",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 1332,
+   "rank": 30
+  },
+  {
+   "id": "caws",
+   "tags": [
+    {
+     "tag": "railway:caws",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 1802,
+   "rank": 29
+  },
+  {
+   "id": "zub",
+   "tags": [
+    {
+     "tag": "railway:zub",
+     "values": [
+      "yes"
+     ]
+    },
+    {
+     "tag": "railway:zub122",
+     "values": [
+      "yes"
+     ]
+    },
+    {
+     "tag": "railway:zub123",
+     "values": [
+      "yes"
+     ]
+    },
+    {
+     "tag": "railway:zub222c",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 2468,
+   "rank": 28
+  },
+  {
+   "id": "ssc",
+   "tags": [
+    {
+     "tag": "railway:ssc",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 3192,
+   "rank": 27
+  },
+  {
+   "id": "zbs",
+   "tags": [
+    {
+     "tag": "railway:zbs",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 3241,
+   "rank": 26
+  },
+  {
+   "id": "zsi127",
+   "tags": [
+    {
+     "tag": "railway:zsi127",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 3650,
+   "rank": 25
+  },
+  {
+   "id": "evm",
+   "tags": [
+    {
+     "tag": "railway:evm",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 4291,
+   "rank": 24
+  },
+  {
+   "id": "ebicab",
+   "tags": [
+    {
+     "tag": "railway:ebicab",
+     "values": [
+      "700"
+     ]
+    }
+   ],
+   "order_ways": 4803,
+   "rank": 23
+  },
+  {
+   "id": "als",
+   "tags": [
+    {
+     "tag": "railway:als",
+     "values": [
+      "yes"
+     ]
+    },
+    {
+     "tag": "railway:alsn",
+     "values": [
+      "yes"
+     ]
+    },
+    {
+     "tag": "railway:als-ars",
+     "values": [
+      "yes"
+     ]
+    },
+    {
+     "tag": "railway:alsn-en",
+     "values": [
+      "yes"
+     ]
+    },
+    {
+     "tag": "railway:integra_signum:ALS",
+     "values": [
+      "yes"
+     ]
+    },
+    {
+     "tag": "railway:integra_signum:als",
+     "values": [
+      "yes"
+     ]
+    },
+    {
+     "tag": "railway:integra_signum:ALSO",
+     "values": [
+      "yes"
+     ]
+    },
+    {
+     "tag": "railway:integra_signum:ALSN",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 5021,
+   "rank": 22
+  },
+  {
+   "id": "atp",
+   "tags": [
+    {
+     "tag": "railway:atp",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 5183,
+   "rank": 21
+  },
+  {
+   "id": "jkv",
+   "tags": [
+    {
+     "tag": "railway:jkv",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 8898,
+   "rank": 20
+  },
+  {
+   "id": "ctcs",
+   "tags": [
+    {
+     "tag": "railway:ctcs",
+     "values": [
+      "0"
+     ]
+    }
+   ],
+   "order_ways": 9962,
+   "rank": 19
+  },
+  {
+   "id": "tvm",
+   "tags": [
+    {
+     "tag": "railway:tvm",
+     "values": [
+      "300",
+      "430"
+     ]
+    }
+   ],
+   "order_ways": 10666,
+   "rank": 18
+  },
+  {
+   "id": "tbl",
+   "tags": [
+    {
+     "tag": "railway:tbl",
+     "values": [
+      "1",
+      "1+",
+      "2"
+     ]
+    }
+   ],
+   "order_ways": 12270,
+   "rank": 17
+  },
+  {
+   "id": "ls",
+   "tags": [
+    {
+     "tag": "railway:ls",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 12961,
+   "rank": 16
+  },
+  {
+   "id": "lzb",
+   "tags": [
+    {
+     "tag": "railway:lzb",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 13906,
+   "rank": 15
+  },
+  {
+   "id": "atc",
+   "tags": [
+    {
+     "tag": "railway:atc",
+     "values": [
+      "NS",
+      "DS",
+      "KS",
+      "P",
+      "TD",
+      "D",
+      "CS",
+      "new-CS",
+      "ATC-9"
+     ]
+    }
+   ],
+   "order_ways": 14194,
+   "rank": 14
+  },
+  {
+   "id": "ats",
+   "tags": [
+    {
+     "tag": "railway:ats",
+     "values": [
+      "yes",
+      "S1;S2",
+      "S1",
+      "S2"
+     ]
+    }
+   ],
+   "order_ways": 18280,
+   "rank": 13
+  },
+  {
+   "id": "asfa",
+   "tags": [
+    {
+     "tag": "railway:asfa",
+     "values": [
+      "yes"
+     ]
+    },
+    {
+     "tag": "railway:asfa_200",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 20855,
+   "rank": 12
+  },
+  {
+   "id": "atb",
+   "tags": [
+    {
+     "tag": "railway:atb",
+     "values": [
+      "yes"
+     ]
+    },
+    {
+     "tag": "railway:atb-eg",
+     "values": [
+      "yes"
+     ]
+    },
+    {
+     "tag": "railway:atb-ng",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 21543,
+   "rank": 11
+  },
+  {
+   "id": "shp",
+   "tags": [
+    {
+     "tag": "railway:shp",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 22032,
+   "rank": 10
+  },
+  {
+   "id": "atc",
+   "tags": [
+    {
+     "tag": "railway:atc",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 46036,
+   "rank": 9
+  },
+  {
+   "id": "tpws",
+   "tags": [
+    {
+     "tag": "railway:tpws",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 47663,
+   "rank": 8
+  },
+  {
+   "id": "aws",
+   "tags": [
+    {
+     "tag": "railway:aws",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 48721,
+   "rank": 7
+  },
+  {
+   "id": "scmt",
+   "tags": [
+    {
+     "tag": "railway:scmt",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 49228,
+   "rank": 6
+  },
+  {
+   "id": "kvb",
+   "tags": [
+    {
+     "tag": "railway:kvb",
+     "values": [
+      "yes"
+     ]
+    },
+    {
+     "tag": "railway:kvbp",
+     "values": [
+      "yes"
+     ]
+    },
+    {
+     "tag": "railway:kcvb",
+     "values": [
+      "yes"
+     ]
+    },
+    {
+     "tag": "railway:kcvp",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 68546,
+   "rank": 5
+  },
+  {
+   "id": "pzb",
+   "tags": [
+    {
+     "tag": "railway:pzb",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 188327,
+   "rank": 4
+  },
+  {
+   "id": "tcb",
+   "tags": [
+    {
+     "tag": "railway:tcb",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 3450,
+   "rank": 3
+  },
+  {
+   "id": "twc",
+   "tags": [
+    {
+     "tag": "railway:twc",
+     "values": [
+      "yes"
+     ]
+    }
+   ],
+   "order_ways": 13054,
+   "rank": 2
+  }
+ ]
 }

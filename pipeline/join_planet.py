@@ -30,6 +30,12 @@ sys.path.insert(0, HERE)
 import build_region
 import stations
 
+# The ODbL credit in every published archive's metadata. The join writes every
+# published archive, and a region archive carried forward from an older build
+# lacks the credit, so the join sets it. That also leaves build_region.py, whose
+# hash keys the region caches, untouched.
+ATTRIBUTION = '<a href="https://www.openstreetmap.org/copyright">© OpenStreetMap contributors</a>'
+
 
 def continent(path):
     return path.split("/")[0] if "/" in path else path.split("-latest")[0]
@@ -80,7 +86,8 @@ def main():
     for cont, parts in sorted(groups.items()):
         parts = parts + station_parts.get(cont, [])
         out = os.path.join(out_dir, f"{cont}-{tag}.pmtiles")
-        subprocess.run(["tile-join", "-o", out, "--no-tile-size-limit", "--force", *parts],
+        subprocess.run(["tile-join", "-o", out, "--attribution", ATTRIBUTION,
+                        "--no-tile-size-limit", "--force", *parts],
                        check=True)
         mb = os.path.getsize(out) / 1e6
         print(f"{cont}: joined {len(parts)} regions -> {mb:.0f} MB", file=sys.stderr)

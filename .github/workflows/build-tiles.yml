@@ -103,7 +103,7 @@ jobs:
             work/${{ matrix.region.name }}.stations.geojsonseq
             work/${{ matrix.region.name }}.border.json
             work/${{ matrix.region.name }}.timestamp
-          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/colour.py', 'pipeline/routes.py', 'pipeline/stations.py', 'pipeline/night.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py', 'pipeline/partition.py', 'pipeline/border_check.py', 'pipeline/regions.json', 'pipeline/region_shapes.json', 'scripts/fetch_region.sh') }}
+          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/protection.py', 'pipeline/train_protection.json', 'pipeline/colour.py', 'pipeline/routes.py', 'pipeline/stations.py', 'pipeline/night.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py', 'pipeline/partition.py', 'pipeline/border_check.py', 'pipeline/regions.json', 'pipeline/region_shapes.json', 'scripts/fetch_region.sh') }}
           restore-keys: |
             tiles-${{ matrix.region.name }}-
 
@@ -174,7 +174,8 @@ jobs:
             work/${{ matrix.region.name }}.stations.geojsonseq
             work/${{ matrix.region.name }}.border.json
             work/${{ matrix.region.name }}.timestamp
-          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/colour.py', 'pipeline/routes.py', 'pipeline/stations.py', 'pipeline/night.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py', 'pipeline/partition.py', 'pipeline/border_check.py', 'pipeline/regions.json', 'pipeline/region_shapes.json', 'scripts/fetch_region.sh') }}
+          # The restore step's key, so the two can never drift apart.
+          key: ${{ steps.tiles.outputs.cache-primary-key }}
 
       - name: Upload region tileset          # skipped only when the region hard-failed
         if: success()
@@ -197,6 +198,8 @@ jobs:
     # the matrix.
     if: ${{ always() && needs.prepare.result == 'success' }}
     runs-on: ubuntu-latest
+    env:
+      ODBL_NOTE: "Data © OpenStreetMap contributors, available under the Open Database License (ODbL): https://www.openstreetmap.org/copyright"
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/tippecanoe
@@ -334,7 +337,7 @@ jobs:
           TAG="${{ needs.prepare.outputs.tag }}"
           gh release view "$TAG" >/dev/null 2>&1 \
             || gh release create "$TAG" --title "Planet tiles $TAG" \
-                 --notes "OSM railway PMTiles pyramid z2-z16, per-continent. Source as of ${{ steps.join.outputs.osm_ts }}."
+                 --notes "OSM railway PMTiles pyramid z2-z16, per-continent. Source as of ${{ steps.join.outputs.osm_ts }}. $ODBL_NOTE"
           for f in out/*.pmtiles out/*.hashes out/*.changed out/night-trains-*.json.gz; do
             [ -e "$f" ] || continue
             # uploads.github.com fails single large uploads now and then (a 404 on 2026-10-26).
@@ -351,9 +354,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view latest >/dev/null 2>&1 \
-            || gh release create latest --title "latest" \
-                 --notes "Stable pointer. manifest.json names the current archives." --prerelease
+          NOTES="Stable pointer. manifest.json names the current archives. $ODBL_NOTE"
+          # Edit as well as create: the tag already exists, and its notes carry the licence.
+          if gh release view latest >/dev/null 2>&1; then
+            gh release edit latest --notes "$NOTES"
+          else
+            gh release create latest --title "latest" --notes "$NOTES" --prerelease
+          fi
           gh release upload latest manifest.json --clobber
 
       # Retention (RETENTION.md). Runs only after both publish steps succeeded, so
