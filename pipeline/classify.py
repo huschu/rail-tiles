@@ -9,7 +9,9 @@ Construction and proposed lines tag their attributes under a prefix
 (construction:electrified, proposed:voltage, ...). `_get` reads the prefixed tag
 for those lines and falls back to the plain tag, so a future line shows its
 planned electrification, speed, gauge and protection while lifecycle still marks
-it as not in service.
+it as not in service. A line under construction often keeps its planned values
+under proposed: (the East Coast Rail Link's proposed:voltage), so those come
+after construction: and before the plain tag.
 """
 import colour
 import routes
@@ -53,11 +55,13 @@ def _pfx(p):
     return lc + ":" if lc in ("construction", "proposed") else ""
 
 
+_VALUE_PREFIXES = {"construction": ("construction:", "proposed:"), "proposed": ("proposed:",)}
+
+
 def _get(p, key):
     """Value of `key`, preferring the construction:/proposed: prefixed tag."""
-    pfx = _pfx(p)
-    if pfx:
-        v = p.get(pfx + key)
+    for pre in _VALUE_PREFIXES.get(lifecycle(p), ()):
+        v = p.get(pre + key)
         if v is not None:
             return v
     return p.get(key)
