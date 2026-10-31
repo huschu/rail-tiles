@@ -118,3 +118,50 @@ class ProposedElectrification(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ChangesOnLinesInService(unittest.TestCase):
+    LINE = {"railway": "rail", "usage": "main", "maxspeed": "160", "gauge": "1668", "railway:pzb": "yes"}
+
+    def rec(self, **tags):
+        p = dict(self.LINE, **tags)
+        return C.emit_props(p, C.speed_of(p), protection=C.protection_of(p))
+
+    def test_upgrade_under_construction_carries_the_future_speed(self):
+        rec = self.rec(**{"construction:maxspeed": "250", "proposed:maxspeed": "300"})
+        self.assertEqual((rec["maxspeed"], rec["maxspeed_construction"]), (160, 250))
+        self.assertNotIn("maxspeed_proposed", rec)
+
+    def test_proposed_speed_reads_the_directional_tags_too(self):
+        rec = self.rec(**{"proposed:maxspeed:forward": "200", "proposed:maxspeed:backward": "120"})
+        self.assertEqual(rec["maxspeed_proposed"], 200)
+
+    def test_gauge_conversion(self):
+        rec = self.rec(**{"proposed:gauge": "1435"})
+        self.assertEqual((rec["gauge_mm"], rec["gauge_proposed"]), (1668, "1435"))
+        self.assertEqual(self.rec(**{"construction:gauge": "1435;1668"})["gauge_construction"], "1435;1668")
+
+    def test_train_protection_being_installed(self):
+        rec = self.rec(**{"construction:railway:etcs": "2"})
+        self.assertEqual((rec["train_protection"], rec["tp_construction"], rec["tp_change_rank"]),
+                         ("pzb", "etcs_2", 34))
+
+    def test_no_change_when_the_future_value_is_the_current_one(self):
+        rec = self.rec(**{"construction:maxspeed": "160", "proposed:gauge": "1668",
+                          "construction:railway:pzb": "yes"})
+        self.assertFalse({"maxspeed_construction", "gauge_proposed", "tp_construction"} & rec.keys())
+
+    def test_only_lines_in_service_carry_changes(self):
+        p = dict(self.LINE, railway="construction", **{"construction:railway": "rail",
+                                                        "construction:maxspeed": "250"})
+        rec = C.emit_props(p, C.speed_of(p))
+        self.assertEqual(rec["maxspeed"], 250)
+        self.assertNotIn("maxspeed_construction", rec)
+
+    def test_chains_do_not_run_across_a_change(self):
+        base = dict(self.LINE)
+        self.assertNotEqual(C.render_key(base), C.render_key(dict(base, **{"proposed:maxspeed": "250"})))
+        self.assertNotEqual(C.render_key(dict(base, **{"proposed:maxspeed": "250"})),
+                            C.render_key(dict(base, **{"construction:maxspeed": "250"})))
+        self.assertEqual(C.render_key(dict(base, **{"proposed:maxspeed": "230"})),
+                         C.render_key(dict(base, **{"proposed:maxspeed": "250"})), "same band merges")

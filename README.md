@@ -34,6 +34,8 @@ cache (see [Incremental updates](#incremental-updates)).
 - Attributes (raw numbers; speed bands are the client's job): `kind`,
   `lifecycle`, `usage`, `service`, `elec`, `voltage`, `frequency`,
   `elec_proposed`, `proposed_voltage`, `proposed_frequency`,
+  `maxspeed_construction`, `maxspeed_proposed`, `gauge_construction`,
+  `gauge_proposed`, `tp_construction`, `tp_proposed`, `tp_change_rank`,
   `gauge_class`, `gauge_mm`, `gauge_mm_list`, `maxspeed`, `train_protection`, `tp_rank`,
   `radio`, `traffic_mode`, `colour`, `tunnel`, `bridge`, `name`, `ref`, `osm_id`, `src`,
   `absorbed` (ways a parallel collapse deleted beside this track, `w1;w2`).
@@ -50,6 +52,11 @@ cache (see [Incremental updates](#incremental-updates)).
   `elec=construction`. `elec_proposed` marks a line in service with no wire
   yet and a `proposed:electrified` tag; `proposed_voltage` and
   `proposed_frequency` are its planned system.
+- On a line in service, `maxspeed_*`, `gauge_*` and `tp_*` with the suffix
+  `construction` or `proposed` are a change under way or planned: the value
+  tagged under that prefix, when it differs from the current one.
+  `construction:` wins over `proposed:`. `tp_change_rank` ranks the new
+  system like `tp_rank`.
 - `colour` is the OSM `colour` tag as a 24-bit RGB integer (`0xE4013A`). Hex in
   any case, `#rgb` and CSS names are normalised; values that do not parse are
   dropped. An integer is smaller in the tile than a `#rrggbb` string.

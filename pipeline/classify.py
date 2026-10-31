@@ -248,6 +248,64 @@ def protection_of(p):
     return protection.train_protection(p, _pfx(p))
 
 
+STAGES = ("construction", "proposed")
+
+
+def _change(p, read, current):
+    """(stage, value) of a change to a line in service: the value tagged under
+    construction:, else under proposed:, when it differs from the current
+    one. None for lines not in service, which show their future values
+    through the lifecycle prefixes already."""
+    if lifecycle(p) != "present":
+        return None
+    for stage in STAGES:
+        v = read(stage + ":")
+        if v is not None:
+            return (stage, v) if v != current else None
+    return None
+
+
+def speed_change(p):
+    def read(pre):
+        v = parse_speed(p.get(pre + "maxspeed"))
+        if v is not None:
+            return v
+        dirs = [parse_speed(p.get(pre + "maxspeed:forward")), parse_speed(p.get(pre + "maxspeed:backward"))]
+        dirs = [x for x in dirs if x is not None]
+        return max(dirs) if dirs else None
+    return _change(p, read, speed_of(p))
+
+
+def gauge_change(p):
+    def read(pre):
+        g = p.get(pre + "gauge")
+        gs = [x.strip() for x in str(g).split(";") if x.strip()] if g else []
+        return gs or None
+    return _change(p, read, gauges_of(p))
+
+
+def protection_change(p):
+    """(stage, (system, rank)) of a train protection system being installed
+    or proposed on a line in service."""
+    def read(pre):
+        hit = protection.train_protection(p, pre)
+        return hit if hit[0] not in (None, "none") else None
+    change = _change(p, read, None)
+    if change and change[1][0] == protection_of(p)[0]:
+        return None
+    return change
+
+
+def change_key(p):
+    """What the map draws of the changes, for the merge key: a chain must not
+    run from a stretch with a change onto one without, or across a change
+    to a different speed band, gauge class or system."""
+    sc, gc, pc = speed_change(p), gauge_change(p), protection_change(p)
+    return (sc and (sc[0], band_of(sc[1])),
+            gc and (gc[0], "multi" if len(gc[1]) > 1 else gc[1][0]),
+            pc and (pc[0], pc[1][0]))
+
+
 def is_tunnel(p):
     v = _get(p, "tunnel")
     return bool(v) and v != "no"
@@ -264,7 +322,7 @@ def render_key(p):
     mode are deliberately excluded: keying on them would fragment low-zoom chains
     and defeat parallel collapse, so they ride as per-chain aggregates instead
     (dominant value over the members), exact on raw ways from z12 up."""
-    return (kind_of(p), lifecycle(p), _get(p, "usage"), elec_system(p), gauge_class(p))
+    return (kind_of(p), lifecycle(p), _get(p, "usage"), elec_system(p), gauge_class(p), change_key(p))
 
 
 def is_service(p):
@@ -327,6 +385,14 @@ def emit_props(p, maxspeed, osm_id=None, src=None, tunnel=False, bridge=False,
         rec["traffic_mode"] = traffic_mode
     if protection and protection[0]:
         rec["train_protection"], rec["tp_rank"] = protection
+    # Changes on a line in service; p is homogeneous in them (change_key).
+    sc, gc, pc = speed_change(p), gauge_change(p), protection_change(p)
+    if sc:
+        rec[f"maxspeed_{sc[0]}"] = sc[1]
+    if gc:
+        rec[f"gauge_{gc[0]}"] = ";".join(gc[1])
+    if pc:
+        rec[f"tp_{pc[0]}"], rec["tp_change_rank"] = pc[1]
     if tunnel:
         rec["tunnel"] = True
     if bridge:
