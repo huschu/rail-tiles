@@ -64,6 +64,19 @@ class WireUnderConstruction(unittest.TestCase):
         p = {"railway": "rail", "electrified": "construction", "voltage": "25000", "frequency": "50"}
         self.assertEqual(C.supply(p), (25000.0, 50.0))
 
+    def test_construction_prefix_marks_wire_going_up_on_a_line_without_it(self):
+        p = {"railway": "rail", "electrified": "no", "construction:electrified": "contact_line",
+             "construction:voltage": "25000", "construction:frequency": "50",
+             "proposed:electrified": "contact_line"}
+        rec = C.emit_props(p, None)
+        self.assertEqual((rec["elec"], rec["voltage"], rec["frequency"]), ("construction", 25000.0, 50.0))
+        self.assertNotIn("elec_proposed", rec)
+
+    def test_wired_line_keeps_its_system_while_a_new_one_is_built(self):
+        p = {"railway": "rail", "electrified": "contact_line", "voltage": "750", "frequency": "0",
+             "construction:electrified": "contact_line", "construction:voltage": "15000"}
+        self.assertEqual((C.electrification_state(p), C.supply(p)), ("electrified", (750.0, 0.0)))
+
     def test_planned_electrification_alone_leaves_the_line_unelectrified(self):
         p = {"railway": "rail", "electrified": "no", "proposed:electrified": "contact_line",
              "proposed:voltage": "15000"}

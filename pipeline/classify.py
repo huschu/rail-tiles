@@ -136,19 +136,23 @@ def electrification_state(p):
     v = _get(p, "electrified")
     if v in ELECTRIFIED:
         return "electrified"
-    if v == "no":
-        return "non_electrified"
     if v == "construction":
         return "construction"
+    # A line in service whose wire goes up is tagged either way:
+    # electrified=construction, or electrified=no with construction:electrified.
+    if lifecycle(p) == "present" and p.get("construction:electrified") in ELECTRIFIED:
+        return "construction"
+    if v == "no":
+        return "non_electrified"
     return "unknown"
 
 
 def supply(p):
     """Voltage and frequency, as numbers. While the wire goes up on a line in
-    service (electrified=construction), the future system is the one to show,
-    and it is tagged under construction: or proposed: like a new line's."""
+    service, the future system is the one to show, and it is tagged under
+    construction: or proposed: like a new line's."""
     def get(key):
-        if lifecycle(p) == "present" and _get(p, "electrified") == "construction":
+        if lifecycle(p) == "present" and electrification_state(p) == "construction":
             for pre in _VALUE_PREFIXES["construction"]:
                 v = p.get(pre + key)
                 if v is not None:
