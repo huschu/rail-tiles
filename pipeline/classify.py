@@ -129,9 +129,12 @@ def band_of(v):
     return len(BAND_EDGES)
 
 
+ELECTRIFIED = ("contact_line", "rail", "third_rail", "4th_rail", "ground_level_power_supply")
+
+
 def electrification_state(p):
     v = _get(p, "electrified")
-    if v in ("contact_line", "rail", "third_rail", "4th_rail", "ground_level_power_supply"):
+    if v in ELECTRIFIED:
         return "electrified"
     if v == "no":
         return "non_electrified"
@@ -154,6 +157,17 @@ def supply(p):
     return first_num(get("voltage")), first_num(get("frequency"))
 
 
+def proposed_supply(p):
+    """(voltage, frequency) of the electrification proposed for a line in
+    service that has none yet, either may be None; None when nothing is
+    proposed. Its own elec stays non_electrified or unknown."""
+    if lifecycle(p) != "present" or electrification_state(p) not in ("non_electrified", "unknown"):
+        return None
+    if p.get("proposed:electrified") not in ELECTRIFIED:
+        return None
+    return first_num(p.get("proposed:voltage")), first_num(p.get("proposed:frequency"))
+
+
 def first_num(raw):
     if not raw:
         return None
@@ -166,7 +180,8 @@ def first_num(raw):
 def elec_system(p):
     """Detailed electrification identity for the merge key only (not emitted)."""
     if electrification_state(p) in ("non_electrified", "unknown"):
-        return electrification_state(p)
+        plan = proposed_supply(p)
+        return electrification_state(p) + (f"+proposed:{plan}" if plan else "")
     v, f = supply(p)
     if v is None:
         return "elec-unknown"
@@ -282,6 +297,13 @@ def emit_props(p, maxspeed, osm_id=None, src=None, tunnel=False, bridge=False,
         rec["voltage"] = v
     if f is not None:
         rec["frequency"] = f
+    plan = proposed_supply(p)
+    if plan:
+        rec["elec_proposed"] = True
+        if plan[0] is not None:
+            rec["proposed_voltage"] = plan[0]
+        if plan[1] is not None:
+            rec["proposed_frequency"] = plan[1]
     gmm = gauge_mm(p)
     if gmm is not None:
         rec["gauge_mm"] = gmm

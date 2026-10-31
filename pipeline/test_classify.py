@@ -70,5 +70,38 @@ class WireUnderConstruction(unittest.TestCase):
         self.assertEqual(C.supply(p), (None, None))
 
 
+class ProposedElectrification(unittest.TestCase):
+    DIESEL = {"railway": "rail", "usage": "main", "electrified": "no",
+              "proposed:electrified": "contact_line", "proposed:voltage": "15000",
+              "proposed:frequency": "16.7"}
+
+    def test_line_in_service_carries_its_proposed_system_beside_its_own(self):
+        rec = C.emit_props(self.DIESEL, None)
+        self.assertEqual(rec["elec"], "non_electrified")
+        self.assertNotIn("voltage", rec)
+        self.assertEqual((rec["elec_proposed"], rec["proposed_voltage"], rec["proposed_frequency"]),
+                         (True, 15000.0, 16.7))
+
+    def test_proposal_without_a_voltage_is_still_marked(self):
+        p = {"railway": "rail", "proposed:electrified": "contact_line"}
+        rec = C.emit_props(p, None)
+        self.assertEqual((rec["elec"], rec.get("elec_proposed")), ("unknown", True))
+        self.assertNotIn("proposed_voltage", rec)
+
+    def test_chains_do_not_merge_across_a_proposal(self):
+        plain = dict(self.DIESEL)
+        del plain["proposed:electrified"]
+        self.assertNotEqual(C.render_key(self.DIESEL), C.render_key(plain))
+        self.assertNotEqual(C.render_key(self.DIESEL), C.render_key(dict(self.DIESEL, **{"proposed:voltage": "25000"})))
+
+    def test_only_lines_in_service_without_wire_get_a_proposal(self):
+        for extra in ({"electrified": "contact_line", "voltage": "750"},
+                      {"electrified": "construction"},
+                      {"railway": "disused"},
+                      {"proposed:electrified": "no"}):
+            rec = C.emit_props(dict(self.DIESEL, **extra), None)
+            self.assertNotIn("elec_proposed", rec, extra)
+
+
 if __name__ == "__main__":
     unittest.main()
