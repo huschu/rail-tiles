@@ -184,7 +184,8 @@ Each region builds its graph from its whole extract into
 leave a way to one region while only the other region's extract holds the
 branch that meets it. The join recuts every way at every region's cuts, so
 the branch finds a junction there, and merges a border station's services
-and stop positions. A Germany-only join gives the same edges as `graph.py`
+and stop positions. Only the newest OSM version of a way counts, since a
+region carried forward from an older build may hold one whose nodes differ. A Germany-only join gives the same edges as `graph.py`
 on the extract; Germany, Austria, Switzerland, Liechtenstein and Italy
 together find paths across every border between them.
 

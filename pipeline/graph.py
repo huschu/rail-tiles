@@ -77,21 +77,24 @@ def _tags(field):
 
 
 def _way(line):
-    """(way id, tags, [(node id, lon, lat)]); a node without a location ends
-    the way there."""
+    """(way id, OSM version, tags, [(node id, lon, lat)], truncated); a node
+    without a location ends the way there."""
     fields = line.rstrip("\n").split(" ")
-    wid, tags, nodes = int(fields[0][1:]), {}, []
+    wid, version, tags, nodes, truncated = int(fields[0][1:]), 0, {}, [], False
     for f in fields[1:]:
-        if f.startswith("T") and len(f) > 1:
+        if f.startswith("v") and len(f) > 1:
+            version = int(f[1:])
+        elif f.startswith("T") and len(f) > 1:
             tags = _tags(f)
         elif f.startswith("N") and len(f) > 1:
             for ref in f[1:].split(","):
                 nid, _, loc = ref[1:].partition("x")
                 lon, _, lat = loc.partition("y")
                 if not lon or not lat:
+                    truncated = True
                     break
                 nodes.append((int(nid), float(lon), float(lat)))
-    return wid, tags, nodes
+    return wid, version, tags, nodes, truncated
 
 
 def _node(line):
@@ -152,6 +155,8 @@ class Graph:
         self.way_props = {}
         self.relations = []
         self.stop_tags = {}
+        self.version = {}           # way id -> OSM version
+        self.truncated = set()      # ways cut short at a node without a location
 
     def _junction(self, nid, lon, lat):
         j = self.node_index.get(nid)
@@ -228,9 +233,12 @@ def build(lines):
     for line in lines:
         t = line[:1]
         if t == "w":
-            wid, tags, nodes = _way(line)
+            wid, version, tags, nodes, truncated = _way(line)
             if len(nodes) >= 2 and C.keep(tags) and C.lifecycle(tags) not in NO_TRACK:
                 ways.append((wid, tags, nodes))
+                g.version[wid] = version
+                if truncated:
+                    g.truncated.add(wid)
         elif t == "n":
             nid, tags, lon, lat = _node(line)
             if is_stop(tags):
@@ -430,15 +438,25 @@ def sidecar(g, table, stations, path):
 
     Geofabrik extracts overlap at borders, and each cuts a way only where
     its own ways meet it, so the join needs every region's cuts of a way.
-    A way line is [tile, way id, class, lons, lats (1e-7), cuts], one per
-    chunk tile any of its vertices lies in, so each chunk sees every version
-    of every way through it; cuts are [index, node id, stop]. A station line
-    is ["station", record], with its stop positions as node ids."""
+    A way line is [tile, way id, OSM version, class, lons, lats (1e-7),
+    cuts], one per chunk tile any of its vertices lies in, so each chunk
+    sees every version of every way through it; cuts are [index, node id,
+    flag], flag 1 for a stop position.
+
+    A way cut short at a node without a location reaches fewer tiles than
+    the whole way, so its cuts also go on one ["cuts", way id, version,
+    cuts] line for every chunk, and its last cut, where it was cut short,
+    has flag 2. A station line is ["station", record], with its stop
+    positions as node ids."""
     pieces = {}
     for e in range(g.edge_count):
         pieces.setdefault(g.way[e], []).append(e)
     proc = subprocess.Popen(["zstd", "-q", "-10", "-T0", "-f", "-o", path], stdin=subprocess.PIPE)
     out = proc.stdin
+
+    def line(rec, **kw):
+        out.write((json.dumps(rec, separators=(",", ":"), **kw) + "\n").encode())
+
     for wid, es in pieces.items():
         es.sort(key=g.i0.__getitem__)
         lons, lats, cuts = [], [], []
@@ -451,17 +469,20 @@ def sidecar(g, table, stations, path):
                 if not cuts or cuts[-1][0] != i:
                     cuts.append([i, g.node_id[j], 1 if g.stop[j] else 0])
         assert cuts[0][0] == 0 and cuts[-1][0] == len(lons) - 1, f"way {wid}: pieces leave a gap"
+        version = g.version.get(wid, 0)
+        if wid in g.truncated:
+            cuts[-1][2] = 2
+            line(["cuts", wid, version, cuts])
         e = es[0]
         cls = [g.kind[e], g.lifecycle[e], g.usage[e], g.service[e], g.maxspeed[e]]
         for t in sorted({tile_of(lon / 1e7, lat / 1e7) for lon, lat in zip(lons, lats)}):
-            out.write((json.dumps([list(t), wid, cls, lons, lats, cuts], separators=(",", ":")) + "\n").encode())
+            line([list(t), wid, version, cls, lons, lats, cuts])
     for sid, st in stations.items():
         if st["kind"] not in TRAIN_STATIONS:
             continue
-        rec = {"id": sid, "name": st["name"], "kind": st["kind"], "lon": _e7(st["lon"]),
-               "lat": _e7(st["lat"]), "routes": json.loads(st["routes"] or "[]"),
-               "stops": [g.node_id[j] for j in table.get(sid, [])]}
-        out.write((json.dumps(["station", rec], ensure_ascii=False, separators=(",", ":")) + "\n").encode())
+        line(["station", {"id": sid, "name": st["name"], "kind": st["kind"], "lon": _e7(st["lon"]),
+                          "lat": _e7(st["lat"]), "routes": json.loads(st["routes"] or "[]"),
+                          "stops": [g.node_id[j] for j in table.get(sid, [])]}], ensure_ascii=False)
     out.close()
     if proc.wait() != 0:
         raise RuntimeError(f"zstd failed writing {path}")

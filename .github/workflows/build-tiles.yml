@@ -130,7 +130,7 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: work/${{ matrix.region.name }}.graph.jsonl.zst
-          key: graph-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/graph.py', 'pipeline/classify.py', 'pipeline/routes.py', 'pipeline/stations.py', 'scripts/fetch_region.sh') }}
+          key: graph-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/graph.py', 'pipeline/classify.py', 'pipeline/protection.py', 'pipeline/train_protection.json', 'pipeline/colour.py', 'pipeline/routes.py', 'pipeline/stations.py', 'scripts/fetch_region.sh') }}
           restore-keys: |
             graph-${{ matrix.region.name }}-
 
@@ -200,10 +200,13 @@ jobs:
         env:
           NAME: ${{ matrix.region.name }}
           PATHREL: ${{ matrix.region.path }}
+          TILES_HIT: ${{ steps.tiles.outputs.cache-hit }}
         run: |
           set -uo pipefail
           NEW="work/$NAME.graph.new.jsonl.zst"
-          if [ ! -f "work/$NAME-rail.osm.pbf" ]; then
+          # The tiles step already fetched unless its cache hit; fetching
+          # again after a failed download could run the job out of time.
+          if [ ! -f "work/$NAME-rail.osm.pbf" ] && [ "$TILES_HIT" = "true" ]; then
             bash scripts/fetch_region.sh "$NAME" "$PATHREL" work || true
           fi
           if [ -f "work/$NAME-rail.osm.pbf" ] && python3 pipeline/graph.py --sidecar "work/$NAME-rail.osm.pbf" "$NEW"; then
@@ -264,6 +267,15 @@ jobs:
       ODBL_NOTE: "Data © OpenStreetMap contributors, available under the Open Database License (ODbL): https://www.openstreetmap.org/copyright"
     steps:
       - uses: actions/checkout@v5
+
+      # The regions' archives and graphs, the continent archives and the
+      # track graph's chunk files all sit on this disk at once.
+      - name: Free disk for the join
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+          sudo docker image prune --all --force || true
+          df -h /
       - uses: ./.github/actions/tippecanoe
       # compression.zstd, for the zstd tiles, is in the standard library from 3.14.
       - uses: actions/setup-python@v7
