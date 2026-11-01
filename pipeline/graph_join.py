@@ -37,6 +37,7 @@ import sys
 import tempfile
 from compression import zstd
 from concurrent.futures import ProcessPoolExecutor
+from itertools import accumulate
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -119,7 +120,8 @@ def bucket(path):
     ways = {}
     with open(path, encoding="utf-8") as f:
         for line in f:
-            wid, *copy = json.loads(line)
+            wid, version, cls, lons, lats, nids, cuts, stops = json.loads(line)
+            copy = (version, cls, *(list(accumulate(v)) for v in (lons, lats, nids)), cuts, stops)
             ways.setdefault(wid, []).append(copy)
     os.remove(path)
     out, stale = {}, 0

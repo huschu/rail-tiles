@@ -30,7 +30,8 @@ def bucket(lines):
 
 
 def way_line(wid, c):
-    return json.dumps([wid, *c]) + "\n"
+    version, cls, lons, lats, nids, cuts, stops = c
+    return json.dumps([wid, version, cls, G.deltas(lons), G.deltas(lats), G.deltas(nids), cuts, stops]) + "\n"
 
 
 class WayEdges(unittest.TestCase):

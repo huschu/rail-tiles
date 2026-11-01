@@ -310,7 +310,7 @@ def station_stops(g, pbf):
 
 VERSION = 4
 STATIONS_VERSION = 1
-SIDECAR_VERSION = 2
+SIDECAR_VERSION = 3
 
 # Station kinds the app finds trips between.
 TRAIN_STATIONS = ("train", "light_rail")
@@ -429,14 +429,21 @@ def tile_of(lon, lat):
     return min(max(x, 0), n - 1), min(max(y, 0), n - 1)
 
 
+def deltas(values):
+    """Each value less the one before, which zstd packs far tighter along a
+    way, whose node ids and coordinates change little from one to the next."""
+    return values[:1] + [b - a for a, b in zip(values, values[1:])]
+
+
 def sidecar(g, table, path):
     """The region's graph for graph_join.py, as zstd JSON lines.
 
     Geofabrik extracts overlap at borders, and each cuts a way only where
     its own ways meet it, so the join recuts each way at every region's
     cuts. A way line is [way id, OSM version, class, lons, lats (1e-7),
-    node ids, cuts, stops]: cuts are the node ids it is cut at here, stops
-    those that are stop positions. Cuts go by node id, so they still apply
+    node ids, cuts, stops], with lons, lats and node ids as deltas: cuts
+    are the node ids it is cut at here, stops those that are stop
+    positions. Cuts go by node id, so they still apply
     to another region's newer version of the way. A way cut short at a node
     without a location has no cut where it was cut short.
 
@@ -468,7 +475,7 @@ def sidecar(g, table, path):
             cuts.pop()
         e = es[0]
         cls = [g.kind[e], g.lifecycle[e], g.usage[e], g.service[e], g.maxspeed[e]]
-        line([wid, g.version[wid], cls, lons, lats, nids, [g.node_id[j] for j in cuts],
+        line([wid, g.version[wid], cls, deltas(lons), deltas(lats), deltas(nids), [g.node_id[j] for j in cuts],
               [g.node_id[j] for j in cuts if g.stop[j]]])
     for sid, js in table.items():
         line(["stops", sid, sorted(g.node_id[j] for j in js)])
