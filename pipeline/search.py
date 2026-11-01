@@ -87,8 +87,8 @@ def turn(h_in, h_out):
 
 
 def find(g, sources, target, factor, max_turn=MAX_TURN):
-    """Directed edges from one of `sources` (junctions) to `target`, or None.
-    The train may leave a source either way."""
+    """(cost, directed edges) from one of `sources` (junctions) to
+    `target`, or None. The train may leave a source either way."""
     tlon, tlat = g.lon[target], g.lat[target]
 
     def h(v):
@@ -97,7 +97,7 @@ def find(g, sources, target, factor, max_turn=MAX_TURN):
     best, prev, heap = {}, {}, []
     for s in sources:
         if s == target:
-            return []
+            return 0.0, []
         for d in g.out[s]:
             f = factor(d >> 1)
             if f is None:
@@ -116,7 +116,7 @@ def find(g, sources, target, factor, max_turn=MAX_TURN):
             while d != -1:
                 path.append(d)
                 d = prev[d]
-            return path[::-1]
+            return c, path[::-1]
         h_in, back = g.head_in(d), d ^ 1
         for d2 in g.out[v]:
             if d2 == back:

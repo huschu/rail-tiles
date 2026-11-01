@@ -43,12 +43,11 @@ def main():
     legs = [(s, t) for _, stops in routes for s, t in zip(stops, stops[1:])]
 
     def case(sources, target, factor, service=None):
-        path = S.find(g, sources, target, factor)
+        found = S.find(g, sources, target, factor)
         out = {"from": g.node_id[sources[0]], "to": g.node_id[target],
                "cost": None, "km": None}
-        if path is not None:
-            cost = sum(factor(d >> 1) * g.length[d >> 1] for d in path)
-            cost += S.REVERSE_M * sum(1 for a, b in zip(path, path[1:]) if b == a ^ 1)
+        if found is not None:
+            cost, path = found
             out["cost"] = round(cost, 1)
             out["km"] = round(GC.length(g, path) / 1000, 3)
         if service is not None:

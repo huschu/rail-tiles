@@ -119,6 +119,10 @@ def main():
     train = S.train_factor(g, args.speed_weight)
     tally = Counter()
 
+    def path(sources, target, factor, **kw):
+        found = S.find(g, sources, target, factor, **kw)
+        return None if found is None else found[1]
+
     def row(r, s, t, ref, got):
         if got is None:
             return 0.0, 0.0, r, s, t, ref, None
@@ -137,20 +141,20 @@ def main():
         refs = []
         for s, t in zip(stops, stops[1:]):
             tally["legs"] += 1
-            ref = S.find(g, [s], t, on_members)
+            ref = path([s], t, on_members)
             if ref is None:
-                loose = S.find(g, [s], t, on_members, max_turn=180.0)
+                loose = path([s], t, on_members, max_turn=180.0)
                 tally["no reference: " + ("relation has a gap" if loose is None else "needs a sharp turn")] += 1
                 refs.append(None)
                 continue
             refs.append(ref)
-            got = S.find(g, [s], t, train)
+            got = path([s], t, train)
             if got is None:
                 tally["no path found"] += 1
             legs.append(row(r, s, t, ref, got))
         if len(whole) < args.whole and all(refs):
             ref = [d for leg in refs for d in leg]
-            whole.append(row(r, stops[0], stops[-1], ref, S.find(g, [stops[0]], stops[-1], train)))
+            whole.append(row(r, stops[0], stops[-1], ref, path([stops[0]], stops[-1], train)))
     print(f"searched in {time.time() - t0:.0f} s")
     for k, v in sorted(tally.items()):
         print(f"  {k}: {v}")
