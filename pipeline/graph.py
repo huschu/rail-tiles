@@ -49,7 +49,7 @@ from array import array
 import classify as C
 import routes
 import stations as ST
-from geometry import _equirect_m as metres
+from geometry import K
 
 HEADING_M = 20.0
 
@@ -104,6 +104,11 @@ def _node(line):
 
 def is_stop(tags):
     return tags.get("railway") == "stop" or tags.get("public_transport") == "stop_position"
+
+
+def metres(lon1, lat1, lon2, lat2):
+    c = math.cos(math.radians((lat1 + lat2) / 2))
+    return math.hypot((lon2 - lon1) * K * c, (lat2 - lat1) * K)
 
 
 def bearing(lon1, lat1, lon2, lat2):
