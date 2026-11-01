@@ -29,11 +29,13 @@ fixed width so the app copies them out without parsing:
          (E + 1 offsets)
   inner vertices: i32 lon, i32 lat
   stations: u8-prefixed id, u16-prefixed name, u8-prefixed kind, i32 lon,
-            i32 lat, u16 count, i32 junctions; every station a train stops at
+            i32 lat, u16 count, i32 junctions, u32-prefixed services as the
+            tiles' `routes` JSON; every station a train stops at
             (TRAIN_STATIONS), with or without stop positions on track
 
 Usage: graph.py IN-rail.osm.pbf OUT.rltg.zst
 """
+import json
 import math
 import struct
 import subprocess
@@ -256,8 +258,11 @@ def station_stops(g, pbf):
     without a station goes to the nearest station within stations.NEAR_M of
     its stops, and a stop position no stop area holds to the nearest station
     within NEAR_M that serves its track, as stations.calls places services.
-    The app keeps the junctions whose track suits the trip."""
-    stations, _ = ST.read_points(pbf)
+    The app keeps the junctions whose track suits the trip.
+
+    Each station also gets the services calling at it, as the tiles list
+    them, so a station found by name offers them without its tile."""
+    stations, stop_points = ST.read_points(pbf)
     grid = ST._Grid(stations.values())
     out = {}
     placed = set()
@@ -285,10 +290,15 @@ def station_stops(g, pbf):
             if s["kind"] in accepts:
                 out.setdefault(s["id"], set()).add(j)
                 break
+    served = ST.calls(g.relations, stations, stop_points)
+    rel_by_id = {r["rid"]: r for r in g.relations}
+    for sid, st in stations.items():
+        entries = ST.services(served.get(sid, ()), rel_by_id)
+        st["routes"] = json.dumps(entries, ensure_ascii=False, separators=(",", ":")) if entries else ""
     return {sid: sorted(js) for sid, js in out.items()}, stations
 
 
-VERSION = 2
+VERSION = 3
 
 # Station kinds the app finds trips between.
 TRAIN_STATIONS = ("train", "light_rail")
@@ -373,6 +383,8 @@ def write(g, table, stations, path):
         b += bytes([len(sid)]) + sid.encode() + struct.pack("<H", len(name)) + name
         b += bytes([len(kind)]) + kind + struct.pack("<iiH", _e7(st["lon"]), _e7(st["lat"]), len(js))
         b += _arr("i", (new[j] for j in js))
+        routes_json = st["routes"].encode()
+        b += struct.pack("<I", len(routes_json)) + routes_json
     with open(path, "wb") as f:
         f.write(zstd.compress(bytes(b), level=19))
     return len(b)
