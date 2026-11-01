@@ -1,6 +1,7 @@
 import json
 import os
 import shutil
+import struct
 import sys
 import tempfile
 import unittest
@@ -12,83 +13,93 @@ import graph_join as J
 RAIL = ["rail", None, "main", None, 160]
 
 
-def way_line(wid, lons, lat, cuts, version=1):
-    t = G.tile_of(lons[0], lat)
-    return json.dumps([list(t), wid, version, RAIL, [round(x * 1e7) for x in lons],
-                       [round(lat * 1e7)] * len(lons), cuts]) + "\n"
+def copy(lons, lat, nids, cuts, stops=(), version=1):
+    """A region's copy of a way, as way_edges takes it."""
+    return (version, RAIL, [round(x * 1e7) for x in lons], [round(lat * 1e7)] * len(lons),
+            nids, cuts, list(stops))
 
 
-def chunk(lines, t, short=None):
+def ranges(edges):
+    return [(i0, i1) for i0, i1, *_ in edges]
+
+
+def bucket(lines):
     with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
         f.writelines(lines)
-    try:
-        return J.chunk(t, f.name, short or {})
-    finally:
-        os.remove(f.name)
+    return J.bucket(f.name)
 
 
-def pieces(g):
-    return sorted((g.way[e], g.i0[e], g.i1[e]) for e in range(g.edge_count))
+def way_line(wid, c):
+    return json.dumps([wid, *c]) + "\n"
 
 
-class Chunk(unittest.TestCase):
+class WayEdges(unittest.TestCase):
+    LONS = [10.0, 10.01, 10.02, 10.03, 10.04]
+    NIDS = [1, 2, 3, 4, 5]
+
     def test_a_way_is_cut_wherever_any_region_cut_it(self):
-        lons = [10.0, 10.01, 10.02, 10.03, 10.04]
-        here = [[0, 1, 0], [4, 5, 0]]
-        neighbour = [[0, 1, 0], [2, 3, 1], [4, 5, 0]]  # its branch meets the way at node 3
-        g, conflicts, _ = chunk([way_line(7, lons, 50.0, here), way_line(7, lons, 50.0, neighbour)],
-                                G.tile_of(10.0, 50.0))
-        self.assertEqual(pieces(g), [(7, 0, 2), (7, 2, 4)])
-        self.assertTrue(g.stop[g.node_index[3]])
-        self.assertEqual(conflicts, 0)
+        here = copy(self.LONS, 50.0, self.NIDS, [1, 5])
+        neighbour = copy(self.LONS, 50.0, self.NIDS, [1, 3, 5], stops=[3])  # its branch meets the way at node 3
+        _, edges, stale = J.way_edges([here, neighbour])
+        self.assertEqual(ranges(edges), [(0, 2), (2, 4)])
+        self.assertEqual([e[4] for e in edges], [2, 1])
+        self.assertEqual(stale, 0)
 
-    def test_an_edge_between_chunks_is_in_both(self):
+    def test_an_older_versions_cuts_count_where_its_nodes_still_are(self):
+        # The older version had no node 2, so its cut at node 4 sat at index 2.
+        new = copy(self.LONS, 50.0, self.NIDS, [1, 5], version=4)
+        old = copy([10.0, 10.02, 10.03, 10.04], 50.0, [1, 3, 4, 5], [1, 4, 5], version=3)
+        _, edges, stale = J.way_edges([new, old])
+        self.assertEqual(ranges(edges), [(0, 3), (3, 4)])
+        self.assertEqual(stale, 1)
+
+    def test_a_way_cut_short_adds_its_cuts_and_the_whole_way_counts(self):
+        whole = copy(self.LONS, 50.0, self.NIDS, [1, 5])
+        # Another region holds the way up to node 3 only, with a branch at node 2.
+        short = copy(self.LONS[:3], 50.0, self.NIDS[:3], [1, 2])
+        _, edges, _ = J.way_edges([short, whole])
+        self.assertEqual(ranges(edges), [(0, 1), (1, 4)])
+
+    def test_an_edge_between_chunks_goes_to_both(self):
         # 8.4375 degrees east is a z7 tile edge.
-        line = way_line(8, [8.40, 8.47], 50.0, [[0, 1, 0], [1, 2, 0]])
         west, east = G.tile_of(8.40, 50.0), G.tile_of(8.47, 50.0)
         self.assertNotEqual(west, east)
-        self.assertEqual(pieces(chunk([line], west)[0]), [(8, 0, 1)])
-        self.assertEqual(pieces(chunk([line], east)[0]), [(8, 0, 1)])
-
-    def test_regions_naming_different_nodes_at_one_cut_are_counted(self):
-        lons = [10.0, 10.01]
-        _, conflicts, _ = chunk([way_line(9, lons, 50.0, [[0, 1, 0], [1, 2, 0]]),
-                                 way_line(9, lons, 50.0, [[0, 1, 0], [1, 3, 0]])], G.tile_of(10.0, 50.0))
-        self.assertEqual(conflicts, 1)
-
-    def test_an_older_version_of_a_way_is_ignored(self):
-        # The older version had no node at index 1; its cut there named another node.
-        new = way_line(5, [10.0, 10.01, 10.02], 50.0, [[0, 1, 0], [2, 3, 0]], version=4)
-        old = way_line(5, [10.0, 10.02], 50.0, [[0, 1, 0], [1, 3, 0]], version=3)
-        g, conflicts, stale = chunk([new, old], G.tile_of(10.0, 50.0))
-        self.assertEqual(pieces(g), [(5, 0, 2)])
-        self.assertEqual((conflicts, stale), (0, 1))
-
-    def test_a_way_cut_short_still_adds_its_cuts_and_not_its_short_end(self):
-        lons = [10.0, 10.01, 10.02, 10.03, 10.04]
-        whole = way_line(6, lons, 50.0, [[0, 1, 0], [4, 5, 0]])
-        # Another region holds the way up to index 2 only, with a branch at index 1.
-        short = {6: [(1, [[0, 1, 0], [1, 2, 0], [2, 9, 2]])]}
-        g, _, _ = chunk([whole], G.tile_of(10.0, 50.0), short)
-        self.assertEqual(pieces(g), [(6, 0, 1), (6, 1, 4)])
+        out, _ = bucket([way_line(8, copy([8.40, 8.47], 50.0, [1, 2], [1, 2]))])
+        self.assertEqual(sorted(out), sorted([west, east]))
+        self.assertEqual(out[west], out[east])
 
 
 class Stations(unittest.TestCase):
-    def test_a_border_station_gets_both_regions_stops_and_services(self):
-        ch = [{"id": "n1", "name": "Basel SBB", "kind": "train", "lon": 0, "lat": 0,
-               "routes": [["train", "IC 5", None, "SBB", [1]]], "stops": [10]}]
-        de = [{"id": "n1", "name": "Basel SBB", "kind": "train", "lon": 0, "lat": 0,
-               "routes": [["train", "IC 5", 0xFF0000, "SBB", [2]], ["train", "RE 7", None, "DB", [3]]],
-               "stops": [11]}]
-        st = J.merge_stations([ch, de])["n1"]
-        self.assertEqual(st["stops"], [10, 11])
-        self.assertEqual(sorted(json.loads(st["routes"])), [["train", "IC 5", 0xFF0000, "SBB", [1, 2]],
-                                                            ["train", "RE 7", None, "DB", [3]]])
+    def test_the_station_file_lists_train_stations_with_their_stops(self):
+        feats = [{"properties": {"osm_id": "n2", "kind": "train", "name": "Basel SBB", "routes": '[["train"]]'},
+                  "geometry": {"coordinates": [7.5895, 47.5474]}},
+                 {"properties": {"osm_id": "n1", "kind": "tram", "name": "Bankverein"},
+                  "geometry": {"coordinates": [7.59, 47.55]}}]
+        raw = G.station_file(feats, {"n2": [10, 11], "n1": [12]})
+        self.assertEqual(raw[:4], b"RLTS")
+        self.assertEqual(struct.unpack_from("<2I", raw, 4), (G.STATIONS_VERSION, 1))
+        self.assertEqual(raw[13:15], b"n2")
+        pos = 15
+        name_len, = struct.unpack_from("<H", raw, pos)
+        pos += 2 + name_len
+        pos += 1 + raw[pos]
+        lon, lat, count = struct.unpack_from("<iiH", raw, pos)
+        pos += 10
+        self.assertEqual((lon, lat), (75895000, 475474000))
+        self.assertEqual(struct.unpack_from(f"<{count}q", raw, pos), (10, 11))
+        pos += 8 * count
+        routes_len, = struct.unpack_from("<I", raw, pos)
+        self.assertEqual(raw[pos + 4:pos + 4 + routes_len], b'[["train"]]')
+        self.assertEqual(pos + 4 + routes_len, len(raw))
 
 
 def opl_way(wid, nodes, version=1):
     refs = ",".join(f"n{nid}x{lon}y{lat}" for nid, lon, lat in nodes)
     return f"w{wid} v{version} dV c0 t2026-01-01T00:00:00Z i0 u Trailway=rail,usage=main N{refs}\n"
+
+
+def pieces(g):
+    return sorted((g.way[e], g.i0[e], g.i1[e]) for e in range(g.edge_count))
 
 
 @unittest.skipUnless(shutil.which("zstd"), "needs the zstd command")
@@ -98,27 +109,41 @@ class Sidecar(unittest.TestCase):
         branch = [(2, 10.01, 50.0), (4, 10.01, 50.01)]
         g = G.build([opl_way(70, line), opl_way(71, branch)])
         with tempfile.TemporaryDirectory() as tmp:
-            region = os.path.join(tmp, "regions", "x")
-            os.makedirs(region)
-            G.sidecar(g, {}, {}, os.path.join(region, "x.graph.jsonl.zst"))
-            files, short, _ = J.split([os.path.join(region, "x.graph.jsonl.zst")], tmp)
-            joined, conflicts, stale = J.chunk(G.tile_of(10.0, 50.0), files[G.tile_of(10.0, 50.0)], short)
+            side = os.path.join(tmp, "x.graph.jsonl.zst")
+            G.sidecar(g, {}, side)
+            buckets, _ = J.split([side], tmp)
+            spill = J.Spill(lambda t: os.path.join(tmp, f"{t[0]}_{t[1]}.jsonl"))
+            for path in buckets:
+                for t, lines in J.bucket(path)[0].items():
+                    spill.add(t, lines)
+            spill.flush()
+            self.assertEqual(list(spill.paths), [G.tile_of(10.0, 50.0)])
+            joined = J.chunk(spill.paths[G.tile_of(10.0, 50.0)])
         self.assertEqual(pieces(joined), pieces(g))
-        self.assertEqual((conflicts, stale), (0, 0))
+
+    def test_a_sidecar_of_another_format_is_skipped(self):
+        from compression import zstd
+        with tempfile.TemporaryDirectory() as tmp:
+            side = os.path.join(tmp, "old.graph.jsonl.zst")
+            with zstd.open(side, "wt") as f:
+                f.write('[[1,2],8,1,["rail",null,null,null,null],[0,1],[0,0],[[0,1,0],[1,2,0]]]\n')
+            self.assertEqual(J.split([side], tmp), ([], {}))
 
 
 class Archive(unittest.TestCase):
     def test_chunks_read_back_as_one_graph(self):
         from compression import zstd
-        lines = [way_line(8, [8.40, 8.47], 50.0, [[0, 1, 1], [1, 2, 0]]),
-                 way_line(9, [8.47, 8.50], 50.0, [[0, 2, 0], [1, 3, 0]])]
+        out, _ = bucket([way_line(8, copy([8.40, 8.47], 50.0, [1, 2], [1, 2], stops=[1])),
+                         way_line(9, copy([8.47, 8.50], 50.0, [2, 3], [2, 3]))])
         ents, bounds = [], []
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "graph.pmtiles")
             with tempfile.TemporaryFile() as data:
-                for tid, t in sorted((J.zxy_to_tileid(G.CHUNK_ZOOM, *t), t)
-                                     for t in {G.tile_of(8.40, 50.0), G.tile_of(8.47, 50.0)}):
-                    blob = zstd.compress(G.encode(chunk(lines, t)[0], {}, {}))
+                for tid, t in sorted((J.zxy_to_tileid(G.CHUNK_ZOOM, *t), t) for t in out):
+                    lines = os.path.join(tmp, "chunk.jsonl")
+                    with open(lines, "w") as f:
+                        f.writelines(out[t])
+                    blob = zstd.compress(G.encode(J.chunk(lines)))
                     ents.append((tid, 1, data.tell(), len(blob)))
                     bounds.append(J.tile_bounds(*t))
                     data.write(blob)

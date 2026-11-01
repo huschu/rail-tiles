@@ -171,8 +171,8 @@ map:
 
 | asset | contents |
 |---|---|
-| `track-graph-<tag>.rltg.pmtiles` | PMTiles, tile type 0, one zoom (`trackGraph.zoom`, 7): each tile a zstd frame of `graph.py`'s file with every edge that has an end in the tile and no stations |
-| `track-stations-<tag>.rlts.zst` | every train and light rail station with its name, position, services and stop positions as node ids (`pipeline/graph_join.py`) |
+| `track-graph-<tag>.rltg.pmtiles` | PMTiles, tile type 0, one zoom (`trackGraph.zoom`, 7): each tile a zstd frame of `graph.py`'s graph file with every edge that has an end in the tile |
+| `track-stations-<tag>.rlts.zst` | `graph.py`'s station file: every train and light rail station with its name, position, services and stop positions as node ids |
 
 The app searches stations by name in the station file, then loads the chunks
 a search reaches: the chunk a junction lies in holds every edge at that
@@ -182,12 +182,15 @@ node id and drops an edge it already has by way and first vertex.
 Each region builds its graph from its whole extract into
 `<region>.graph.jsonl.zst`, border ways included: the border partition would
 leave a way to one region while only the other region's extract holds the
-branch that meets it. The join recuts every way at every region's cuts, so
-the branch finds a junction there, and merges a border station's services
-and stop positions. Only the newest OSM version of a way counts, since a
-region carried forward from an older build may hold one whose nodes differ. A Germany-only join gives the same edges as `graph.py`
-on the extract; Germany, Austria, Switzerland, Liechtenstein and Italy
-together find paths across every border between them.
+branch that meets it. The join gathers every region's copy of a way and
+cuts its newest OSM version wherever any copy has a cut, by node id, so the
+branch finds a junction there even when the neighbour was carried forward
+with an older version of the way. Station names, positions and services
+are the map's, from the same station sidecars and merge as the stations
+layer; the graphs add the stop positions. A Germany-only join gives the same
+edges as `graph.py` on the extract; Germany, Austria, Switzerland,
+Liechtenstein and Italy together find paths across every border between
+them.
 
 The graph caches per region apart from the tiles, so a change to one
 rebuilds only that one.
