@@ -84,8 +84,9 @@ jobs:
           df -h /
 
       - name: Install osmium
-        # shapely for the border partition (pipeline/partition.py)
-        run: sudo apt-get update && sudo apt-get install -y osmium-tool python3-shapely
+        # shapely for the border partition (pipeline/partition.py), zstd for
+        # the track graph sidecar (pipeline/graph.py)
+        run: sudo apt-get update && sudo apt-get install -y osmium-tool python3-shapely zstd
 
       - uses: ./.github/actions/tippecanoe
 
@@ -122,9 +123,20 @@ jobs:
           restore-keys: |
             tiles-${{ matrix.region.name }}-
 
+      # The track graph caches apart from the tiles, so a change to either
+      # rebuilds only that one.
+      - name: Restore region track graph
+        id: graph
+        uses: actions/cache/restore@v6
+        with:
+          path: work/${{ matrix.region.name }}.graph.jsonl.zst
+          key: graph-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/graph.py', 'pipeline/classify.py', 'pipeline/routes.py', 'pipeline/stations.py', 'scripts/fetch_region.sh') }}
+          restore-keys: |
+            graph-${{ matrix.region.name }}-
+
       - name: Restore filtered extract
         id: extract
-        if: steps.tiles.outputs.cache-hit != 'true'
+        if: steps.tiles.outputs.cache-hit != 'true' || steps.graph.outputs.cache-hit != 'true'
         uses: actions/cache@v6
         with:
           path: |
@@ -179,6 +191,40 @@ jobs:
           fi
           echo "::error::$NAME: no fresh build and no prior tileset"; exit 1
 
+      # Every region keeps its whole extract here, border ways included: a
+      # neighbour's branch onto a border way needs this region's cut there.
+      # graph_join.py merges the regions' versions of each way.
+      - name: Build track graph or carry forward
+        id: graph_build
+        if: steps.graph.outputs.cache-hit != 'true'
+        env:
+          NAME: ${{ matrix.region.name }}
+          PATHREL: ${{ matrix.region.path }}
+        run: |
+          set -uo pipefail
+          NEW="work/$NAME.graph.new.jsonl.zst"
+          if [ ! -f "work/$NAME-rail.osm.pbf" ]; then
+            bash scripts/fetch_region.sh "$NAME" "$PATHREL" work || true
+          fi
+          if [ -f "work/$NAME-rail.osm.pbf" ] && python3 pipeline/graph.py --sidecar "work/$NAME-rail.osm.pbf" "$NEW"; then
+            mv "$NEW" "work/$NAME.graph.jsonl.zst"
+            echo "built=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          rm -f "$NEW"
+          if [ -f "work/$NAME.graph.jsonl.zst" ]; then
+            echo "::warning::$NAME: track graph failed; carrying forward the last good one"
+          else
+            echo "::warning::$NAME: track graph failed and none to carry forward"
+          fi
+
+      - name: Save region track graph
+        if: steps.graph_build.outputs.built == 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: work/${{ matrix.region.name }}.graph.jsonl.zst
+          key: ${{ steps.graph.outputs.cache-primary-key }}
+
       - name: Save region tileset            # only a fresh build, under the exact key
         if: steps.build.outputs.built == 'true'
         uses: actions/cache/save@v6
@@ -203,6 +249,7 @@ jobs:
             work/${{ matrix.region.name }}.stations.geojsonseq
             work/${{ matrix.region.name }}.border.json
             work/${{ matrix.region.name }}.timestamp
+            work/${{ matrix.region.name }}.graph.jsonl.zst
           if-no-files-found: ignore
           retention-days: 3
 
@@ -276,6 +323,19 @@ jobs:
           python3 pipeline/night.py join regions "$OUT" \
             || { rm -f "$OUT"; echo "::warning::night trains failed; the manifest omits them"; }
 
+      # The planet's track graph, in chunks, and the stations the app finds
+      # trips between (pipeline/graph_join.py). A region without a graph
+      # sidecar leaves a hole; the manifest omits the graph only if the join
+      # fails outright.
+      - name: Track graph
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          python3 pipeline/graph_join.py regions out "$TAG" || {
+            rm -f out/track-graph-"$TAG".* out/track-stations-"$TAG".*
+            echo "::warning::track graph failed; the manifest omits it"
+          }
+
       # Per-tile change lists. A weekly rebuild changes <1% of tiles, so instead
       # of the client purging its whole cache on a buildId bump, we publish the
       # exact tiles that differ from the previous build. Each continent gets a
@@ -342,6 +402,8 @@ jobs:
             --osm-timestamp "${{ steps.join.outputs.osm_ts }}" \
             --recent-builds "${{ steps.diffs.outputs.builds }}" \
             --night-trains "out/night-trains-${{ needs.prepare.outputs.tag }}.json.gz" \
+            --track-graph "out/track-graph-${{ needs.prepare.outputs.tag }}.rltg.pmtiles" \
+            --track-stations "out/track-stations-${{ needs.prepare.outputs.tag }}.rlts.zst" \
             --out manifest.json
           cat manifest.json
 
@@ -358,7 +420,7 @@ jobs:
           gh release view "$TAG" >/dev/null 2>&1 \
             || gh release create "$TAG" "${PRE[@]}" --title "Planet tiles $TAG" \
                  --notes "OSM railway PMTiles pyramid z2-z16, per-continent. Source as of ${{ steps.join.outputs.osm_ts }}. $ODBL_NOTE"
-          for f in out/*.pmtiles out/*.hashes out/*.changed out/night-trains-*.json.gz; do
+          for f in out/*.pmtiles out/*.hashes out/*.changed out/night-trains-*.json.gz out/track-stations-*.rlts.zst; do
             [ -e "$f" ] || continue
             # uploads.github.com fails single large uploads now and then (a 404 on 2026-10-26).
             for attempt in 1 2 3; do
@@ -404,7 +466,7 @@ jobs:
           mapfile -t OLD < <(gh release list --limit 1000 --json tagName -q '.[].tagName' \
             | grep -E '^[0-9]{8}$' | sort -ru | tail -n +3)
           for t in "${OLD[@]}"; do
-            if [[ "$t" < "$CUTOFF" ]]; then pattern='\.(pmtiles|hashes)$'; else pattern='\.hashes$'; fi
+            if [[ "$t" < "$CUTOFF" ]]; then pattern='\.(pmtiles|hashes|rlts\.zst)$'; else pattern='\.hashes$'; fi
             gh release view "$t" --json assets -q '.assets[].name' \
               | { grep -E "$pattern" || true; } \
               | while read -r name; do
@@ -422,5 +484,6 @@ jobs:
           path: |
             out/*.pmtiles
             out/night-trains-*.json.gz
+            out/track-stations-*.rlts.zst
             manifest.json
           retention-days: 3

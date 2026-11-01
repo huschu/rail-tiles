@@ -13,6 +13,10 @@ PMTiles header, so the client loads only the archives overlapping the viewport.
   osmTimestamp   the source extracts' own timestamp, shown as "data as of"
   nightTrains    {url, bytes} of the gzipped night-train list (night.py),
                  when the build produced one
+  trackGraph     {url, bytes, sha256, zoom, bounds} of the track graph's
+                 chunk archive (graph_join.py), when the build produced one;
+                 not a map archive, so not under archives
+  trackStations  {url, bytes} of the stations file the app searches by name
   builds         recent dated tags, oldest->newest, that carry a per-tile change
                  list. A client soft-purge walks the tags after its last-seen one
                  and applies each <region>-<tag>.changed instead of wiping the
@@ -24,7 +28,8 @@ and the client derives that URL from baseUrl, the builds tags, and each region.
 
 Usage: manifest.py --archives-dir DIR --tag TAG --base-url URL \
                    --build-id ISO --osm-timestamp ISO \
-                   [--recent-builds t1,t2,...] [--night-trains FILE] --out manifest.json
+                   [--recent-builds t1,t2,...] [--night-trains FILE] \
+                   [--track-graph FILE --track-stations FILE] --out manifest.json
 """
 import argparse
 import glob
@@ -69,6 +74,8 @@ def main():
                     help="comma-separated dated tags, oldest->newest, that carry "
                          "a change list (the last 26 builds incl. this one)")
     ap.add_argument("--night-trains")
+    ap.add_argument("--track-graph")
+    ap.add_argument("--track-stations")
     ap.add_argument("--out", default="manifest.json")
     args = ap.parse_args()
 
@@ -103,6 +110,19 @@ def main():
         fn = os.path.basename(args.night_trains)
         manifest["nightTrains"] = {"url": f"{args.base_url}/{args.tag}/{fn}",
                                    "bytes": os.path.getsize(args.night_trains)}
+    if args.track_graph and os.path.exists(args.track_graph) \
+            and args.track_stations and os.path.exists(args.track_stations):
+        fn = os.path.basename(args.track_graph)
+        with open(args.track_graph, "rb") as f:
+            zoom = f.read(101)[100]
+        manifest["trackGraph"] = {"url": f"{args.base_url}/{args.tag}/{fn}",
+                                  "bytes": os.path.getsize(args.track_graph),
+                                  "sha256": sha256(args.track_graph),
+                                  "zoom": zoom,
+                                  "bounds": bounds(args.track_graph)}
+        fn = os.path.basename(args.track_stations)
+        manifest["trackStations"] = {"url": f"{args.base_url}/{args.tag}/{fn}",
+                                     "bytes": os.path.getsize(args.track_stations)}
     with open(args.out, "w") as f:
         json.dump(manifest, f, indent=2)
     print(json.dumps(manifest, indent=2), file=sys.stderr)

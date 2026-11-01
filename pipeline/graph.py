@@ -33,7 +33,11 @@ fixed width so the app copies them out without parsing:
             tiles' `routes` JSON; every station a train stops at
             (TRAIN_STATIONS), with or without stop positions on track
 
+CI builds the graph per region and writes a sidecar instead (--sidecar),
+which graph_join.py merges across regions and cuts into chunks.
+
 Usage: graph.py IN-rail.osm.pbf OUT.rltg.zst
+       graph.py --sidecar IN-rail.osm.pbf OUT.graph.jsonl.zst
 """
 import json
 import math
@@ -41,7 +45,6 @@ import struct
 import subprocess
 import sys
 from array import array
-from compression import zstd
 
 import classify as C
 import routes
@@ -162,6 +165,11 @@ class Graph:
         return j
 
     def _edge(self, wid, props, nodes, i0, i1):
+        self.add_edge(wid, edge_class(props), nodes, i0, i1)
+
+    def add_edge(self, wid, cls, nodes, i0, i1):
+        """The piece i0..i1 of way wid, whose nodes are [(node id, lon, lat)]
+        and whose classification is edge_class's."""
         e = len(self.way)
         pts = [(lon, lat) for _, lon, lat in nodes[i0:i1 + 1]]
         a = self._junction(*nodes[i0])
@@ -172,11 +180,12 @@ class Graph:
         self.a.append(a)
         self.b.append(b)
         self.length.append(sum(metres(*pts[k], *pts[k + 1]) for k in range(len(pts) - 1)))
-        self.kind.append(C.kind_of(props))
-        self.lifecycle.append(C.lifecycle(props))
-        self.usage.append(props.get("usage"))
-        self.service.append(props.get("service"))
-        self.maxspeed.append(C.speed_of(props))
+        kind, lifecycle, usage, service, maxspeed = cls
+        self.kind.append(kind)
+        self.lifecycle.append(lifecycle)
+        self.usage.append(usage)
+        self.service.append(service)
+        self.maxspeed.append(maxspeed)
         self.coords.append(pts)
         rev = pts[::-1]
         fwd_out, rev_out = _heading_out(pts), _heading_out(rev)
@@ -204,6 +213,12 @@ class Graph:
             pts = pts[::-1] if d & 1 else pts
             out.extend(pts if not out else pts[1:])
         return out
+
+
+def edge_class(props):
+    """(kind, lifecycle, usage, service, maxspeed) of a way's tags."""
+    return (C.kind_of(props), C.lifecycle(props), props.get("usage"), props.get("service"),
+            C.speed_of(props))
 
 
 def build(lines):
@@ -340,6 +355,16 @@ def _e7(v):
 
 def write(g, table, stations, path):
     """The graph and its stations as the app's file (module docstring)."""
+    from compression import zstd
+    raw = encode(g, table, stations)
+    with open(path, "wb") as f:
+        f.write(zstd.compress(raw, level=19))
+    return len(raw)
+
+
+def encode(g, table, stations):
+    """The uncompressed file; stations, the ones whose kind is in
+    TRAIN_STATIONS, at the junctions in table."""
     order = sorted(range(len(g.node_id)), key=g.node_id.__getitem__)
     new = [0] * len(order)
     for i, j in enumerate(order):
@@ -385,17 +410,77 @@ def write(g, table, stations, path):
         b += _arr("i", (new[j] for j in js))
         routes_json = st["routes"].encode()
         b += struct.pack("<I", len(routes_json)) + routes_json
-    with open(path, "wb") as f:
-        f.write(zstd.compress(bytes(b), level=19))
-    return len(b)
+    return bytes(b)
+
+
+# Chunks are tiles at this zoom: about 200 km across in central Europe.
+CHUNK_ZOOM = 7
+
+
+def tile_of(lon, lat, z=CHUNK_ZOOM):
+    n = 1 << z
+    x = int((lon + 180.0) / 360.0 * n)
+    s = math.sin(math.radians(max(min(lat, 85.0511), -85.0511)))
+    y = int((0.5 - math.log((1 + s) / (1 - s)) / (4 * math.pi)) * n)
+    return min(max(x, 0), n - 1), min(max(y, 0), n - 1)
+
+
+def sidecar(g, table, stations, path):
+    """The region's graph for graph_join.py, as zstd JSON lines.
+
+    Geofabrik extracts overlap at borders, and each cuts a way only where
+    its own ways meet it, so the join needs every region's cuts of a way.
+    A way line is [tile, way id, class, lons, lats (1e-7), cuts], one per
+    chunk tile any of its vertices lies in, so each chunk sees every version
+    of every way through it; cuts are [index, node id, stop]. A station line
+    is ["station", record], with its stop positions as node ids."""
+    pieces = {}
+    for e in range(g.edge_count):
+        pieces.setdefault(g.way[e], []).append(e)
+    proc = subprocess.Popen(["zstd", "-q", "-10", "-T0", "-f", "-o", path], stdin=subprocess.PIPE)
+    out = proc.stdin
+    for wid, es in pieces.items():
+        es.sort(key=g.i0.__getitem__)
+        lons, lats, cuts = [], [], []
+        for e in es:
+            pts = g.coords[e]
+            for lon, lat in pts if not lons else pts[1:]:
+                lons.append(_e7(lon))
+                lats.append(_e7(lat))
+            for i, j in ((g.i0[e], g.a[e]), (g.i1[e], g.b[e])):
+                if not cuts or cuts[-1][0] != i:
+                    cuts.append([i, g.node_id[j], 1 if g.stop[j] else 0])
+        assert cuts[0][0] == 0 and cuts[-1][0] == len(lons) - 1, f"way {wid}: pieces leave a gap"
+        e = es[0]
+        cls = [g.kind[e], g.lifecycle[e], g.usage[e], g.service[e], g.maxspeed[e]]
+        for t in sorted({tile_of(lon / 1e7, lat / 1e7) for lon, lat in zip(lons, lats)}):
+            out.write((json.dumps([list(t), wid, cls, lons, lats, cuts], separators=(",", ":")) + "\n").encode())
+    for sid, st in stations.items():
+        if st["kind"] not in TRAIN_STATIONS:
+            continue
+        rec = {"id": sid, "name": st["name"], "kind": st["kind"], "lon": _e7(st["lon"]),
+               "lat": _e7(st["lat"]), "routes": json.loads(st["routes"] or "[]"),
+               "stops": [g.node_id[j] for j in table.get(sid, [])]}
+        out.write((json.dumps(["station", rec], ensure_ascii=False, separators=(",", ":")) + "\n").encode())
+    out.close()
+    if proc.wait() != 0:
+        raise RuntimeError(f"zstd failed writing {path}")
 
 
 def main():
-    if len(sys.argv) != 3:
-        sys.exit("usage: graph.py IN-rail.osm.pbf OUT.rltg.zst")
-    pbf, out = sys.argv[1:]
+    args = sys.argv[1:]
+    side = args[:1] == ["--sidecar"]
+    if side:
+        args = args[1:]
+    if len(args) != 2:
+        sys.exit("usage: graph.py [--sidecar] IN-rail.osm.pbf OUT")
+    pbf, out = args
     g = build(read_opl(pbf))
     table, stations = station_stops(g, pbf)
+    if side:
+        sidecar(g, table, stations, out)
+        print(f"{len(g.node_id)} junctions, {g.edge_count} edges, {len(stations)} stations")
+        return
     raw = write(g, table, stations, out)
     print(f"{len(g.node_id)} junctions, {g.edge_count} edges, {len(stations)} stations; "
           f"{raw / 1e6:.1f} MB raw")
