@@ -101,6 +101,16 @@ jobs:
           fi
           echo "md5=$H" >> "$GITHUB_OUTPUT"
 
+      # Each cache key holds a hash of the code its build runs, found by
+      # following the imports, so a new import cannot leave a stale build.
+      - name: Hash the build code
+        id: code
+        run: |
+          TILES=$(python3 pipeline/cache_key.py pipeline/build_region.py pipeline/regions.json pipeline/region_shapes.json scripts/fetch_region.sh)
+          GRAPH=$(python3 pipeline/cache_key.py pipeline/graph.py scripts/fetch_region.sh)
+          echo "tiles=$TILES" >> "$GITHUB_OUTPUT"
+          echo "graph=$GRAPH" >> "$GITHUB_OUTPUT"
+
       - name: Restore region tileset
         id: tiles
         uses: actions/cache/restore@v6
@@ -115,7 +125,7 @@ jobs:
             work/${{ matrix.region.name }}.stations.geojsonseq
             work/${{ matrix.region.name }}.border.json
             work/${{ matrix.region.name }}.timestamp
-          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/build_region.py', 'pipeline/classify.py', 'pipeline/protection.py', 'pipeline/train_protection.json', 'pipeline/colour.py', 'pipeline/routes.py', 'pipeline/stations.py', 'pipeline/night.py', 'pipeline/geometry.py', 'pipeline/zoomparams.py', 'pipeline/partition.py', 'pipeline/border_check.py', 'pipeline/regions.json', 'pipeline/region_shapes.json', 'scripts/fetch_region.sh') }}
+          key: tiles-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ steps.code.outputs.tiles }}
           restore-keys: |
             tiles-${{ matrix.region.name }}-
 
@@ -126,7 +136,7 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: work/${{ matrix.region.name }}.graph.jsonl.zst
-          key: graph-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/graph.py', 'pipeline/geometry.py', 'pipeline/classify.py', 'pipeline/protection.py', 'pipeline/train_protection.json', 'pipeline/colour.py', 'pipeline/routes.py', 'pipeline/stations.py', 'scripts/fetch_region.sh') }}
+          key: graph-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ steps.code.outputs.graph }}
           restore-keys: |
             graph-${{ matrix.region.name }}-
 
