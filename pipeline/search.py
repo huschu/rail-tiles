@@ -61,16 +61,16 @@ def train_factor(g, speed_weight=SPEED_WEIGHT):
     return f
 
 
-def service_factor(g, ways, speed_weight=SPEED_WEIGHT):
+def service_factor(g, ways):
     """train_factor steered onto a service's member ways. A member way the
     train factor rules out, such as tram track a train route runs over,
     counts as track in service."""
-    base = train_factor(g, speed_weight)
+    base = train_factor(g)
 
     def f(e):
         b = base(e)
         if g.way[e] in ways:
-            return b if b is not None else (V_MAX / speed(g, e)) ** speed_weight
+            return b if b is not None else (V_MAX / speed(g, e)) ** SPEED_WEIGHT
         return None if b is None else b * OFF_SERVICE
     return f
 
@@ -86,7 +86,7 @@ def turn(h_in, h_out):
     return 360.0 - d if d > 180.0 else d
 
 
-def find(g, sources, target, factor, max_turn=MAX_TURN, reverse_m=REVERSE_M):
+def find(g, sources, target, factor, max_turn=MAX_TURN):
     """Directed edges from one of `sources` (junctions) to `target`, or None.
     The train may leave a source either way."""
     tlon, tlat = g.lon[target], g.lat[target]
@@ -117,12 +117,12 @@ def find(g, sources, target, factor, max_turn=MAX_TURN, reverse_m=REVERSE_M):
                 path.append(d)
                 d = prev[d]
             return path[::-1]
-        h_in, back = g.head_in[d], d ^ 1
+        h_in, back = g.head_in(d), d ^ 1
         for d2 in g.out[v]:
             if d2 == back:
                 if not (g.stop[v] or len(g.out[v]) == 1):
                     continue
-                extra = reverse_m
+                extra = REVERSE_M
             elif turn(h_in, g.head_out[d2]) > max_turn:
                 continue
             else:

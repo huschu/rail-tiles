@@ -49,8 +49,7 @@ from array import array
 import classify as C
 import routes
 import stations as ST
-
-K = 111320.0  # metres per degree latitude
+from geometry import _equirect_m as metres
 
 HEADING_M = 20.0
 
@@ -100,22 +99,11 @@ def _way(line):
 def _node(line):
     fields = line.rstrip("\n").split(" ")
     tags = next((_tags(f) for f in fields[1:] if f.startswith("T") and len(f) > 1), {})
-    lon = lat = None
-    for f in fields[1:]:
-        if f.startswith("x") and len(f) > 1:
-            lon = float(f[1:])
-        elif f.startswith("y") and len(f) > 1:
-            lat = float(f[1:])
-    return int(fields[0][1:]), tags, lon, lat
+    return int(fields[0][1:]), tags
 
 
 def is_stop(tags):
     return tags.get("railway") == "stop" or tags.get("public_transport") == "stop_position"
-
-
-def metres(lon1, lat1, lon2, lat2):
-    c = math.cos(math.radians((lat1 + lat2) / 2))
-    return math.hypot((lon2 - lon1) * K * c, (lat2 - lat1) * K)
 
 
 def bearing(lon1, lat1, lon2, lat2):
@@ -140,7 +128,7 @@ class Graph:
 
     Edge e runs from `a[e]` to `b[e]` along way `way[e]`, vertices
     `i0[e]..i1[e]`. Directed edge 2e travels a to b, 2e+1 travels b to a.
-    `head_out[d]` is the heading leaving its start, `head_in[d]` the heading
+    `head_out[d]` is the heading leaving its start, `head_in(d)` the heading
     arriving at its end, both in the direction of travel."""
 
     def __init__(self):
@@ -150,9 +138,8 @@ class Graph:
         self.way, self.i0, self.i1, self.a, self.b, self.length = [], [], [], [], [], []
         self.kind, self.lifecycle, self.usage, self.service, self.maxspeed = [], [], [], [], []
         self.coords = []
-        self.head_out, self.head_in = [], []
+        self.head_out = []
         self.out = []  # per node: directed edges leaving it
-        self.way_props = {}
         self.relations = []
         self.stop_tags = {}
         self.version = {}           # way id -> OSM version
@@ -169,16 +156,13 @@ class Graph:
             self.out.append([])
         return j
 
-    def _edge(self, wid, props, nodes, i0, i1):
-        self.add_edge(wid, edge_class(props), nodes, i0, i1)
-
     def add_edge(self, wid, cls, nodes, i0, i1):
-        """The piece i0..i1 of way wid, whose nodes are [(node id, lon, lat)]
-        and whose classification is edge_class's."""
+        """The piece i0..i1 of way wid, whose nodes there are [(node id, lon,
+        lat)] and whose classification is edge_class's."""
         e = len(self.way)
-        pts = [(lon, lat) for _, lon, lat in nodes[i0:i1 + 1]]
-        a = self._junction(*nodes[i0])
-        b = self._junction(*nodes[i1])
+        pts = [(lon, lat) for _, lon, lat in nodes]
+        a = self._junction(*nodes[0])
+        b = self._junction(*nodes[-1])
         self.way.append(wid)
         self.i0.append(i0)
         self.i1.append(i1)
@@ -192,10 +176,7 @@ class Graph:
         self.service.append(service)
         self.maxspeed.append(maxspeed)
         self.coords.append(pts)
-        rev = pts[::-1]
-        fwd_out, rev_out = _heading_out(pts), _heading_out(rev)
-        self.head_out += [fwd_out, rev_out]
-        self.head_in += [(rev_out + 180.0) % 360.0, (fwd_out + 180.0) % 360.0]
+        self.head_out += [_heading_out(pts), _heading_out(pts[::-1])]
         self.out[a].append(2 * e)
         self.out[b].append(2 * e + 1)
 
@@ -203,9 +184,8 @@ class Graph:
     def edge_count(self):
         return len(self.way)
 
-    def tail(self, d):
-        e = d >> 1
-        return self.b[e] if d & 1 else self.a[e]
+    def head_in(self, d):
+        return (self.head_out[d ^ 1] + 180.0) % 360.0
 
     def head(self, d):
         e = d >> 1
@@ -235,12 +215,12 @@ def build(lines):
         if t == "w":
             wid, version, tags, nodes, truncated = _way(line)
             if len(nodes) >= 2 and C.keep(tags) and C.lifecycle(tags) not in NO_TRACK:
-                ways.append((wid, tags, nodes))
+                ways.append((wid, edge_class(tags), nodes))
                 g.version[wid] = version
                 if truncated:
                     g.truncated.add(wid)
-        elif t == "n":
-            nid, tags, lon, lat = _node(line)
+        elif t == "n" and "stop" in line:
+            nid, tags = _node(line)
             if is_stop(tags):
                 stops[nid] = tags
         elif t == "r":
@@ -252,13 +232,12 @@ def build(lines):
     for _, _, nodes in ways:
         for nid, _, _ in nodes:
             uses[nid] = uses.get(nid, 0) + 1
-    for wid, tags, nodes in ways:
-        g.way_props[wid] = tags
+    for wid, cls, nodes in ways:
         last = 0
         for i in range(1, len(nodes)):
             nid = nodes[i][0]
             if i == len(nodes) - 1 or uses[nid] > 1 or nid in stops:
-                g._edge(wid, tags, nodes, last, i)
+                g.add_edge(wid, cls, nodes[last:i + 1], last, i)
                 last = i
     for nid, tags in stops.items():
         j = g.node_index.get(nid)
@@ -410,23 +389,28 @@ def encode(g, table, stations):
     b += _arr("i", vlat)
     for sid in listed:
         st = stations[sid]
-        name = (st["name"] or "").encode()[:65535]
-        kind = st["kind"].encode()
         js = table.get(sid, [])[:65535]
-        b += bytes([len(sid)]) + sid.encode() + struct.pack("<H", len(name)) + name
-        b += bytes([len(kind)]) + kind + struct.pack("<iiH", _e7(st["lon"]), _e7(st["lat"]), len(js))
-        b += _arr("i", (new[j] for j in js))
-        routes_json = st["routes"].encode()
-        b += struct.pack("<I", len(routes_json)) + routes_json
+        b += station_record(sid, st, _e7(st["lon"]), _e7(st["lat"]), len(js), _arr("i", (new[j] for j in js)))
     return bytes(b)
+
+
+def station_record(sid, st, lon, lat, count, stops):
+    """A station as this file and graph_join.py's station file write it;
+    stops are its count stop positions, already packed."""
+    name = (st["name"] or "").encode()[:65535]
+    kind = st["kind"].encode()
+    routes_json = st["routes"].encode()
+    return (bytes([len(sid)]) + sid.encode() + struct.pack("<H", len(name)) + name
+            + bytes([len(kind)]) + kind + struct.pack("<iiH", lon, lat, count) + stops
+            + struct.pack("<I", len(routes_json)) + routes_json)
 
 
 # Chunks are tiles at this zoom: about 200 km across in central Europe.
 CHUNK_ZOOM = 7
 
 
-def tile_of(lon, lat, z=CHUNK_ZOOM):
-    n = 1 << z
+def tile_of(lon, lat):
+    n = 1 << CHUNK_ZOOM
     x = int((lon + 180.0) / 360.0 * n)
     s = math.sin(math.radians(max(min(lat, 85.0511), -85.0511)))
     y = int((0.5 - math.log((1 + s) / (1 - s)) / (4 * math.pi)) * n)
@@ -458,7 +442,6 @@ def sidecar(g, table, stations, path):
         out.write((json.dumps(rec, separators=(",", ":"), **kw) + "\n").encode())
 
     for wid, es in pieces.items():
-        es.sort(key=g.i0.__getitem__)
         lons, lats, cuts = [], [], []
         for e in es:
             pts = g.coords[e]
@@ -469,13 +452,19 @@ def sidecar(g, table, stations, path):
                 if not cuts or cuts[-1][0] != i:
                     cuts.append([i, g.node_id[j], 1 if g.stop[j] else 0])
         assert cuts[0][0] == 0 and cuts[-1][0] == len(lons) - 1, f"way {wid}: pieces leave a gap"
-        version = g.version.get(wid, 0)
+        version = g.version[wid]
         if wid in g.truncated:
             cuts[-1][2] = 2
             line(["cuts", wid, version, cuts])
         e = es[0]
         cls = [g.kind[e], g.lifecycle[e], g.usage[e], g.service[e], g.maxspeed[e]]
-        for t in sorted({tile_of(lon / 1e7, lat / 1e7) for lon, lat in zip(lons, lats)}):
+        # Most ways lie in one tile, which their bounding box shows.
+        nw = tile_of(min(lons) / 1e7, max(lats) / 1e7)
+        if nw == tile_of(max(lons) / 1e7, min(lats) / 1e7):
+            tiles = [nw]
+        else:
+            tiles = sorted({tile_of(lon / 1e7, lat / 1e7) for lon, lat in zip(lons, lats)})
+        for t in tiles:
             line([list(t), wid, version, cls, lons, lats, cuts])
     for sid, st in stations.items():
         if st["kind"] not in TRAIN_STATIONS:
@@ -500,11 +489,10 @@ def main():
     table, stations = station_stops(g, pbf)
     if side:
         sidecar(g, table, stations, out)
-        print(f"{len(g.node_id)} junctions, {g.edge_count} edges, {len(stations)} stations")
-        return
-    raw = write(g, table, stations, out)
-    print(f"{len(g.node_id)} junctions, {g.edge_count} edges, {len(stations)} stations; "
-          f"{raw / 1e6:.1f} MB raw")
+        size = ""
+    else:
+        size = f"; {write(g, table, stations, out) / 1e6:.1f} MB raw"
+    print(f"{len(g.node_id)} junctions, {g.edge_count} edges, {len(stations)} stations{size}")
 
 
 if __name__ == "__main__":

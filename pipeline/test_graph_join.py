@@ -22,7 +22,7 @@ def chunk(lines, t, short=None):
     with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
         f.writelines(lines)
     try:
-        return J.chunk(t, f.name, short)
+        return J.chunk(t, f.name, short or {})
     finally:
         os.remove(f.name)
 
@@ -82,8 +82,8 @@ class Stations(unittest.TestCase):
                "stops": [11]}]
         st = J.merge_stations([ch, de])["n1"]
         self.assertEqual(st["stops"], [10, 11])
-        self.assertEqual(sorted(st["routes"]), [["train", "IC 5", 0xFF0000, "SBB", [1, 2]],
-                                                ["train", "RE 7", None, "DB", [3]]])
+        self.assertEqual(sorted(json.loads(st["routes"])), [["train", "IC 5", 0xFF0000, "SBB", [1, 2]],
+                                                            ["train", "RE 7", None, "DB", [3]]])
 
 
 def opl_way(wid, nodes, version=1):

@@ -1,0 +1,11 @@
+name: Free disk
+description: Remove preinstalled toolchains the build does not use, about 30 GB on hosted runners.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
+                    /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+        sudo docker image prune --all --force || true
+        df -h /

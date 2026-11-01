@@ -94,6 +94,25 @@ def directories(ents):
         leaf_size = int(leaf_size * 1.2)
 
 
+def write_pmtiles(head, root, meta, leaves, data, counts, path):
+    """Writes the archive with the header head, its section offsets and
+    lengths filled in, and the tile data from the open file data, which is at
+    its end. counts are the addressed tiles, entries and stored tiles."""
+    root_off = HEADER_LEN
+    meta_off = root_off + len(root)
+    leaf_off = meta_off + len(meta)
+    data_off = leaf_off + len(leaves)
+    struct.pack_into("<11Q", head, 8, root_off, len(root), meta_off, len(meta), leaf_off, len(leaves),
+                     data_off, data.tell(), *counts)
+    # A crash leaves a .part file, never a truncated archive under the real name.
+    part = path + ".part"
+    with open(part, "wb") as f:
+        f.write(head); f.write(root); f.write(meta); f.write(leaves)
+        data.seek(0)
+        shutil.copyfileobj(data, f, 1 << 20)
+    os.replace(part, path)
+
+
 def recompress(src_path, out_path, workers=None):
     a = Archive(src_path)
     if a.icomp != 2:
@@ -110,7 +129,6 @@ def recompress(src_path, out_path, workers=None):
                 for key, z in zip(chunk, out):
                     moved[key] = (data.tell(), len(z))
                     data.write(z)
-        data_len = data.tell()
 
         ents = [(tid, rl, *moved[(off, ln)]) for tid, rl, off, ln in ents]
         root, leaves = directories(ents)
@@ -118,23 +136,9 @@ def recompress(src_path, out_path, workers=None):
         meta = a.mm[meta_off:meta_off + meta_len]
 
         head = bytearray(a.mm[:HEADER_LEN])
-        root_off = HEADER_LEN
-        meta_off = root_off + len(root)
-        leaf_off = meta_off + len(meta)
-        data_off = leaf_off + len(leaves)
-        struct.pack_into("<11Q", head, 8,
-                         root_off, len(root), meta_off, len(meta), leaf_off, len(leaves),
-                         data_off, data_len,
-                         sum(rl for _, rl, _, _ in ents), len(ents), len(blobs))
         head[98] = ZSTD
-
-        # A crash leaves a .part file, never a truncated archive under the real name.
-        part = out_path + ".part"
-        with open(part, "wb") as f:
-            f.write(head); f.write(root); f.write(meta); f.write(leaves)
-            data.seek(0)
-            shutil.copyfileobj(data, f, 1 << 20)
-        os.replace(part, out_path)
+        write_pmtiles(head, root, meta, leaves, data,
+                      (sum(rl for _, rl, _, _ in ents), len(ents), len(blobs)), out_path)
     print(f"zstd: {src_path} -> {out_path}  {os.path.getsize(src_path) / 1e6:.1f} -> "
           f"{os.path.getsize(out_path) / 1e6:.1f} MB ({len(blobs):,} tiles)", file=sys.stderr)
 

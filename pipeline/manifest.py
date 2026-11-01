@@ -52,13 +52,17 @@ def sha256(path):
     return h.hexdigest()
 
 
-def bounds(path):
-    """[west, south, east, north] from the PMTiles v3 header (int32 e7 at
-    offsets 102/106/110/114)."""
+def header(path):
     with open(path, "rb") as f:
         head = f.read(127)
     if head[:7] != b"PMTiles" or head[7] != 3:
         raise ValueError(f"{path}: not a PMTiles v3 file")
+    return head
+
+
+def bounds(head):
+    """[west, south, east, north] from a PMTiles v3 header (int32 e7 at
+    offsets 102/106/110/114)."""
     w, s, e, n = struct.unpack_from("<iiii", head, 102)
     return [w / 1e7, s / 1e7, e / 1e7, n / 1e7]
 
@@ -88,7 +92,7 @@ def main():
             "url": f"{args.base_url}/{args.tag}/{fn}",
             "bytes": os.path.getsize(path),
             "sha256": sha256(path),
-            "bounds": bounds(path),
+            "bounds": bounds(header(path)),
         })
     if not archives:
         sys.exit(f"no archives matching *-{args.tag}.pmtiles in {args.archives_dir}")
@@ -113,13 +117,12 @@ def main():
     if args.track_graph and os.path.exists(args.track_graph) \
             and args.track_stations and os.path.exists(args.track_stations):
         fn = os.path.basename(args.track_graph)
-        with open(args.track_graph, "rb") as f:
-            zoom = f.read(101)[100]
+        head = header(args.track_graph)
         manifest["trackGraph"] = {"url": f"{args.base_url}/{args.tag}/{fn}",
                                   "bytes": os.path.getsize(args.track_graph),
                                   "sha256": sha256(args.track_graph),
-                                  "zoom": zoom,
-                                  "bounds": bounds(args.track_graph)}
+                                  "zoom": head[100],
+                                  "bounds": bounds(head)}
         fn = os.path.basename(args.track_stations)
         manifest["trackStations"] = {"url": f"{args.base_url}/{args.tag}/{fn}",
                                      "bytes": os.path.getsize(args.track_stations)}

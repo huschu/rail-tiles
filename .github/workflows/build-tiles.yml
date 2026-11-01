@@ -77,11 +77,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Free disk for large extracts
-        run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
-                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
-          sudo docker image prune --all --force || true
-          df -h /
+        uses: ./.github/actions/free-disk
 
       - name: Install osmium
         # shapely for the border partition (pipeline/partition.py), zstd for
@@ -130,7 +126,7 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: work/${{ matrix.region.name }}.graph.jsonl.zst
-          key: graph-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/graph.py', 'pipeline/classify.py', 'pipeline/protection.py', 'pipeline/train_protection.json', 'pipeline/colour.py', 'pipeline/routes.py', 'pipeline/stations.py', 'scripts/fetch_region.sh') }}
+          key: graph-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('pipeline/graph.py', 'pipeline/geometry.py', 'pipeline/classify.py', 'pipeline/protection.py', 'pipeline/train_protection.json', 'pipeline/colour.py', 'pipeline/routes.py', 'pipeline/stations.py', 'scripts/fetch_region.sh') }}
           restore-keys: |
             graph-${{ matrix.region.name }}-
 
@@ -144,21 +140,26 @@ jobs:
             work/${{ matrix.region.name }}.timestamp
           key: extract-${{ matrix.region.name }}-${{ steps.hash.outputs.md5 }}-${{ hashFiles('scripts/fetch_region.sh') }}
 
+      # One download serves both builds. A failed one is not retried: a second
+      # try at a large extract could run the job out of time.
+      - name: Fetch extract
+        if: (steps.tiles.outputs.cache-hit != 'true' || steps.graph.outputs.cache-hit != 'true') && steps.extract.outputs.cache-hit != 'true'
+        env:
+          NAME: ${{ matrix.region.name }}
+          PATHREL: ${{ matrix.region.path }}
+        run: bash scripts/fetch_region.sh "$NAME" "$PATHREL" work || true
+
       - name: Build or carry forward
         id: build
         if: steps.tiles.outputs.cache-hit != 'true'
         env:
           NAME: ${{ matrix.region.name }}
-          PATHREL: ${{ matrix.region.path }}
         run: |
           set -uo pipefail
           NEW="work/$NAME.new.pmtiles"
           NIGHT="work/$NAME.night.new.json"
           STATIONS="work/$NAME.stations.new.geojsonseq"   # merged across regions at the join
           BORDER="work/$NAME.border.new.json"             # checked across regions at the join
-          if [ ! -f "work/$NAME-rail.osm.pbf" ]; then
-            bash scripts/fetch_region.sh "$NAME" "$PATHREL" work || true
-          fi
           if [ -f "work/$NAME-rail.osm.pbf" ]; then
             if python3 pipeline/build_region.py "$NAME" "$NEW" "work/$NAME-rail.osm.pbf" \
                  --night "$NIGHT" --stations "$STATIONS" \
@@ -199,16 +200,9 @@ jobs:
         if: steps.graph.outputs.cache-hit != 'true'
         env:
           NAME: ${{ matrix.region.name }}
-          PATHREL: ${{ matrix.region.path }}
-          TILES_HIT: ${{ steps.tiles.outputs.cache-hit }}
         run: |
           set -uo pipefail
           NEW="work/$NAME.graph.new.jsonl.zst"
-          # The tiles step already fetched unless its cache hit; fetching
-          # again after a failed download could run the job out of time.
-          if [ ! -f "work/$NAME-rail.osm.pbf" ] && [ "$TILES_HIT" = "true" ]; then
-            bash scripts/fetch_region.sh "$NAME" "$PATHREL" work || true
-          fi
           if [ -f "work/$NAME-rail.osm.pbf" ] && python3 pipeline/graph.py --sidecar "work/$NAME-rail.osm.pbf" "$NEW"; then
             mv "$NEW" "work/$NAME.graph.jsonl.zst"
             echo "built=true" >> "$GITHUB_OUTPUT"
@@ -271,11 +265,7 @@ jobs:
       # The regions' archives and graphs, the continent archives and the
       # track graph's chunk files all sit on this disk at once.
       - name: Free disk for the join
-        run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
-                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
-          sudo docker image prune --all --force || true
-          df -h /
+        uses: ./.github/actions/free-disk
       - uses: ./.github/actions/tippecanoe
       # compression.zstd, for the zstd tiles, is in the standard library from 3.14.
       - uses: actions/setup-python@v7

@@ -27,6 +27,7 @@ from collections import Counter, defaultdict
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import graph as G
 import search as S
+from geometry import K
 
 TOL_M = 30.0
 MATCH = 0.95
@@ -35,7 +36,7 @@ STEP_M = 10.0
 
 def _xy(pts, lat0):
     c = math.cos(math.radians(lat0))
-    return [(lon * G.K * c, lat * G.K) for lon, lat in pts]
+    return [(lon * K * c, lat * K) for lon, lat in pts]
 
 
 def coverage(a, b, lat0):
@@ -117,6 +118,13 @@ def main():
     g = load(args.pbf, args.cache)
     train = S.train_factor(g, args.speed_weight)
     tally = Counter()
+
+    def row(r, s, t, ref, got):
+        if got is None:
+            return 0.0, 0.0, r, s, t, ref, None
+        a, b = g.path_coords(got), g.path_coords(ref)
+        return coverage(a, b, g.lat[s]), coverage(b, a, g.lat[s]), r, s, t, ref, got
+
     legs, whole = [], []
     t0 = time.time()
     for r, stops in train_routes(g):
@@ -139,20 +147,10 @@ def main():
             got = S.find(g, [s], t, train)
             if got is None:
                 tally["no path found"] += 1
-                legs.append((0.0, 0.0, r, s, t, ref, None))
-                continue
-            a, b = g.path_coords(got), g.path_coords(ref)
-            lat0 = g.lat[s]
-            legs.append((coverage(a, b, lat0), coverage(b, a, lat0), r, s, t, ref, got))
-        if len(whole) < args.whole and refs and all(refs):
+            legs.append(row(r, s, t, ref, got))
+        if len(whole) < args.whole and all(refs):
             ref = [d for leg in refs for d in leg]
-            got = S.find(g, [stops[0]], stops[-1], train)
-            if got is not None:
-                a, b = g.path_coords(got), g.path_coords(ref)
-                lat0 = g.lat[stops[0]]
-                whole.append((coverage(a, b, lat0), coverage(b, a, lat0), r, stops[0], stops[-1], ref, got))
-            else:
-                whole.append((0.0, 0.0, r, stops[0], stops[-1], ref, None))
+            whole.append(row(r, stops[0], stops[-1], ref, S.find(g, [stops[0]], stops[-1], train)))
     print(f"searched in {time.time() - t0:.0f} s")
     for k, v in sorted(tally.items()):
         print(f"  {k}: {v}")

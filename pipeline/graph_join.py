@@ -37,11 +37,11 @@ import gzip
 import json
 import math
 import os
-import shutil
 import struct
 import sys
 import tempfile
 from compression import zstd
+from concurrent.futures import ProcessPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -49,10 +49,9 @@ import graph as G
 import stations as ST
 from diff_tiles import Archive, zxy_to_tileid
 from join_planet import ATTRIBUTION
-from zstd_tiles import HEADER_LEN, ZSTD, directories
+from zstd_tiles import HEADER_LEN, LEVEL, ZSTD, directories, write_pmtiles
 
 STATIONS_VERSION = 1
-LEVEL = 19
 # Way lines held in memory before they go to their chunk's file.
 FLUSH_BYTES = 256 << 20
 
@@ -65,11 +64,13 @@ def split(sidecars, tmp):
     short, stations = {}, []
 
     def flush():
+        nonlocal size
         for t, lines in held.items():
             path = files.setdefault(t, os.path.join(tmp, f"{t[0]}_{t[1]}.jsonl"))
             with open(path, "a", encoding="utf-8") as f:
                 f.writelines(lines)
         held.clear()
+        size = 0
 
     for path in sidecars:
         own = []
@@ -87,7 +88,6 @@ def split(sidecars, tmp):
                 size += len(line)
                 if size > FLUSH_BYTES:
                     flush()
-                    size = 0
         stations.append(own)
     flush()
     return files, short, stations
@@ -97,29 +97,27 @@ def merge_stations(per_region):
     """One record per station across regions. stations.merge unites a
     border station's services as the map tiles do; the stop positions
     unite here."""
-    stops = {}
-    lists = []
+    first, stops, lists = {}, {}, []
     for records in per_region:
-        lists.append([{"properties": {"osm_id": r["id"], "name": r["name"],
-                                      "routes": json.dumps(r["routes"]) if r["routes"] else ""},
+        lists.append([{"properties": {"osm_id": r["id"], "name": r["name"], "routes": _routes_json(r["routes"])},
                        "tippecanoe": {"minzoom": 0}} for r in records])
         for r in records:
-            stops.setdefault(r["id"], set()).update(r["stops"])
-    first = {}
-    for records in per_region:
-        for r in records:
             first.setdefault(r["id"], r)
+            stops.setdefault(r["id"], set()).update(r["stops"])
     merged = {}
     for f in ST.merge(lists):
         p = f["properties"]
-        r = first[p["osm_id"]]
-        merged[r["id"]] = {"id": r["id"], "name": p["name"] or "", "kind": r["kind"], "lon": r["lon"],
-                           "lat": r["lat"], "routes": json.loads(p["routes"] or "[]"),
-                           "stops": sorted(stops[r["id"]])}
+        sid = p["osm_id"]
+        merged[sid] = {**first[sid], "name": p["name"] or "", "routes": p["routes"],
+                       "stops": sorted(stops[sid])}
     return merged
 
 
-def chunk(t, path, short=None):
+def _routes_json(entries):
+    return json.dumps(entries, ensure_ascii=False, separators=(",", ":")) if entries else ""
+
+
+def chunk(t, path, short):
     """The chunk at tile t from its way lines and the cuts of ways cut
     short, and how many cuts disagreed between regions and how many way
     versions were older than another region's."""
@@ -137,7 +135,7 @@ def chunk(t, path, short=None):
         _, cls, lons, lats, _ = max(vs, key=lambda v: len(v[2]))
         last = len(lons) - 1
         at = {}
-        for cuts in [v[4] for v in vs] + [c for ver, c in (short or {}).get(wid, ()) if ver == newest]:
+        for cuts in [v[4] for v in vs] + [c for ver, c in short.get(wid, ()) if ver == newest]:
             for i, nid, flag in cuts:
                 # Where a region cut a way short is no junction, unless the
                 # whole way ends there too.
@@ -151,7 +149,7 @@ def chunk(t, path, short=None):
         cut = sorted(at)
         for i0, i1 in zip(cut, cut[1:]):
             if G.tile_of(*nodes[i0][1:]) == t or G.tile_of(*nodes[i1][1:]) == t:
-                g.add_edge(wid, tuple(cls), nodes, i0, i1)
+                g.add_edge(wid, tuple(cls), nodes[i0:i1 + 1], i0, i1)
     for nid in stops:
         j = g.node_index.get(nid)
         if j is not None:
@@ -159,8 +157,8 @@ def chunk(t, path, short=None):
     return g, conflicts, stale
 
 
-def tile_bounds(x, y, z=G.CHUNK_ZOOM):
-    n = 1 << z
+def tile_bounds(x, y):
+    n = 1 << G.CHUNK_ZOOM
 
     def lat(yy):
         return math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * yy / n))))
@@ -178,15 +176,8 @@ def write_archive(ents, bounds, data, path):
     }).encode(), mtime=0)
     w, s = min(b[0] for b in bounds), min(b[1] for b in bounds)
     e, n = max(b[2] for b in bounds), max(b[3] for b in bounds)
-    data_len = data.tell()
     head = bytearray(HEADER_LEN)
     head[:8] = b"PMTiles\x03"
-    root_off = HEADER_LEN
-    meta_off = root_off + len(root)
-    leaf_off = meta_off + len(meta)
-    data_off = leaf_off + len(leaves)
-    struct.pack_into("<11Q", head, 8, root_off, len(root), meta_off, len(meta), leaf_off, len(leaves),
-                     data_off, data_len, len(ents), len(ents), len(ents))
     head[96] = 1                     # clustered
     head[97] = 2                     # gzip directories and metadata
     head[98] = ZSTD
@@ -195,12 +186,7 @@ def write_archive(ents, bounds, data, path):
     struct.pack_into("<iiii", head, 102, *(round(v * 1e7) for v in (w, s, e, n)))
     head[118] = G.CHUNK_ZOOM
     struct.pack_into("<ii", head, 119, round((w + e) / 2 * 1e7), round((s + n) / 2 * 1e7))
-    part = path + ".part"
-    with open(part, "wb") as f:
-        f.write(head); f.write(root); f.write(meta); f.write(leaves)
-        data.seek(0)
-        shutil.copyfileobj(data, f, 1 << 20)
-    os.replace(part, path)
+    write_pmtiles(head, root, meta, leaves, data, (len(ents),) * 3, path)
 
 
 def write_stations(merged, path):
@@ -208,14 +194,8 @@ def write_stations(merged, path):
     b += struct.pack("<2I", STATIONS_VERSION, len(merged))
     for sid in sorted(merged):
         st = merged[sid]
-        name = (st["name"] or "").encode()[:65535]
-        kind = st["kind"].encode()
         stops = st["stops"][:65535]
-        b += bytes([len(sid)]) + sid.encode() + struct.pack("<H", len(name)) + name
-        b += bytes([len(kind)]) + kind + struct.pack("<iiH", st["lon"], st["lat"], len(stops))
-        b += struct.pack(f"<{len(stops)}q", *stops)
-        routes = json.dumps(st["routes"], ensure_ascii=False, separators=(",", ":")).encode() if st["routes"] else b""
-        b += struct.pack("<I", len(routes)) + routes
+        b += G.station_record(sid, st, st["lon"], st["lat"], len(stops), struct.pack(f"<{len(stops)}q", *stops))
     with open(path, "wb") as f:
         f.write(zstd.compress(bytes(b), level=LEVEL))
 
@@ -278,14 +258,30 @@ def load(path):
                     continue
                 seen.add((wid, i0))
                 nodes = [(na, *pts[0])] + [(0, *p) for p in pts[1:-1]] + [(nb, *pts[-1])]
-                g.add_edge(wid, cls, nodes, 0, len(nodes) - 1)
-                g.i0[-1], g.i1[-1] = i0, i1
+                g.add_edge(wid, cls, nodes, i0, i1)
     finally:
         arc.mm.close()
         arc.f.close()
     for nid in stops:
         g.stop[g.node_index[nid]] = True
     return g
+
+
+_short = None
+
+
+def _hold(short):
+    global _short
+    _short = short
+
+
+def _build(job):
+    """A chunk's compressed tile, or None without edges, with its counts."""
+    t, path = job
+    g, conflicts, stale = chunk(t, path, _short)
+    os.remove(path)
+    blob = zstd.compress(G.encode(g, {}, {}), level=LEVEL) if g.edge_count else None
+    return blob, len(g.node_id), g.edge_count, conflicts, stale
 
 
 def main():
@@ -301,19 +297,19 @@ def main():
     ents, bounds, junctions, edges, conflicts, stale = [], [], 0, 0, 0, 0
     with tempfile.TemporaryDirectory(prefix="graph-") as tmp, tempfile.TemporaryFile(dir=tmp) as data:
         files, short, per_region = split(sidecars, tmp)
-        for tid, t in sorted((zxy_to_tileid(G.CHUNK_ZOOM, *t), t) for t in files):
-            g, c, old = chunk(t, files[t], short)
-            os.remove(files[t])
-            conflicts += c
-            stale += old
-            if not g.edge_count:
-                continue
-            junctions += len(g.node_id)
-            edges += g.edge_count
-            blob = zstd.compress(G.encode(g, {}, {}), level=LEVEL)
-            ents.append((tid, 1, data.tell(), len(blob)))
-            bounds.append(tile_bounds(*t))
-            data.write(blob)
+        order = sorted((zxy_to_tileid(G.CHUNK_ZOOM, *t), t) for t in files)
+        with ProcessPoolExecutor(initializer=_hold, initargs=(short,)) as ex:
+            jobs = [(t, files[t]) for _, t in order]
+            for (tid, t), (blob, n, e, c, old) in zip(order, ex.map(_build, jobs, buffersize=os.cpu_count())):
+                conflicts += c
+                stale += old
+                if blob is None:
+                    continue
+                junctions += n
+                edges += e
+                ents.append((tid, 1, data.tell(), len(blob)))
+                bounds.append(tile_bounds(*t))
+                data.write(blob)
         if not ents:
             sys.exit("no track in the graph sidecars")
         write_archive(ents, bounds, data, graph_path)

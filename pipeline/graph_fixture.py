@@ -24,6 +24,12 @@ WHOLE = 30
 SERVICE = 30
 
 
+def sample(items, n, offset=False):
+    """n items spread evenly over items; offset starts half a step in."""
+    step = max(1, len(items) // n)
+    return items[step // 2 if offset else 0::step][:n]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("pbf")
@@ -44,19 +50,15 @@ def main():
             cost = sum(factor(d >> 1) * g.length[d >> 1] for d in path)
             cost += S.REVERSE_M * sum(1 for a, b in zip(path, path[1:]) if b == a ^ 1)
             out["cost"] = round(cost, 1)
-            out["km"] = round(sum(g.length[d >> 1] for d in path) / 1000, 3)
+            out["km"] = round(GC.length(g, path) / 1000, 3)
         if service is not None:
             out["service"] = sorted(service)
         return out
 
-    step = max(1, len(legs) // LEGS)
-    cases = {"legs": [case([s], t, train) for s, t in legs[::step][:LEGS]]}
-    step = max(1, len(routes) // WHOLE)
-    picked = routes[::step][:WHOLE]
-    cases["whole"] = [case([stops[0]], stops[-1], train) for _, stops in picked]
-    step = max(1, len(routes) // SERVICE)
-    cases["service"] = []
-    for r, stops in routes[step // 2::step][:SERVICE]:
+    cases = {"legs": [case([s], t, train) for s, t in sample(legs, LEGS)],
+             "whole": [case([stops[0]], stops[-1], train) for _, stops in sample(routes, WHOLE)],
+             "service": []}
+    for r, stops in sample(routes, SERVICE, offset=True):
         ways = {int(w[1:]) for w in r["ways"]}
         cases["service"].append(case([stops[0]], stops[-1], S.service_factor(g, ways), ways))
     with open(args.out, "w") as f:
