@@ -10,7 +10,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import classify as C
 import geometry as G
-from build_region import low_zoom_key, low_zoom_ways, seg_attrs, segment_chain
+from build_region import emit_zoom, low_zoom_key, low_zoom_ways, seg_attrs, segment_chain
 
 LAT = 48.0
 M = 1 / 111320.0  # degrees of latitude per metre
@@ -160,6 +160,41 @@ class RouteSplit(unittest.TestCase):
                 way("wC", 5020, 10000)]
         subs = segment_chain(chained(ways), 5, LAT)
         self.assertEqual([set(s["src"]) for s in subs], [{"wA"}, {"wB"}, {"wC"}])
+
+
+def arc(wid, radius_m, **tags):
+    """A quarter circle of `radius_m` around a common centre, a vertex every
+    100 m: two arcs a few metres apart are parallel track round a curve."""
+    n = int(radius_m * math.pi / 2 / 100)
+    lon_m = M / math.cos(math.radians(LAT))
+    coords = [(10.8 + radius_m * math.cos(a) * lon_m, LAT + radius_m * math.sin(a) * M)
+              for a in (math.pi / 2 * k / n for k in range(n + 1))]
+    return {"id": wid, "props": dict(BASE, **tags), "coords": coords}
+
+
+def emitted(ways, z):
+    chains = G.chain(ways, low_zoom_key, C.speed_of, C.band_of)
+    id2props = {w["id"]: w["props"] for w in ways}
+    for ch in chains:
+        ch["seg_attrs"] = seg_attrs(ch, math.cos(math.radians(LAT)), id2props)
+        ch["fine"] = G.fine_index(ch["coords"])
+    return [f["properties"] for f in emit_zoom(chains, z, LAT, is_chain=True)]
+
+
+class ParallelCollapse(unittest.TestCase):
+    """Two tubes of a tunnel 8 m apart. A tube with no readable speed is drawn
+    as its neighbour; two different known speeds both stay."""
+
+    def test_unknown_speed_merges_into_the_known_track(self):
+        for z in (7, 9, 11):
+            feats = emitted([arc("wKnown", 3000, maxspeed="200"),
+                             arc("wNone", 3008, maxspeed="https://example.org")], z)
+            self.assertEqual([(f["osm_id"], f.get("maxspeed"), f.get("absorbed")) for f in feats],
+                             [("wKnown", 200, "wNone")], z)
+
+    def test_different_known_speeds_both_stay(self):
+        feats = emitted([arc("wFast", 3000, maxspeed="200"), arc("wSlow", 3008, maxspeed="100")], 11)
+        self.assertEqual(sorted(f["osm_id"] for f in feats), ["wFast", "wSlow"])
 
 
 class RoutedServiceTrack(unittest.TestCase):

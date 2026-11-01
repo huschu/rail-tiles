@@ -6,10 +6,12 @@ number of simplification or collapse passes drop vertices, the surviving
 vertices still map back to real OSM ways. Source spans (rule 4) are read off
 this at emit time, per band, rather than stored once against one geometry.
 """
+import bisect
 import math
 from collections import defaultdict
 
 K = 111320.0  # metres per degree latitude, and per degree longitude at equator
+FINE_TOL_DEG = 2.0 / K  # well inside the collapse reach; keeps ~1/4 of OSM vertices
 
 
 # ---------------------------------------------------------------- Douglas-Peucker
@@ -50,11 +52,14 @@ def dp_keep(coords, tol):
 
 def simplify(poly, tol):
     """poly = {'coords': [(x,y)], 'src': [id], ...}. Return a new poly with
-    vertices dropped by DP at `tol`, src kept in step."""
+    vertices dropped by DP at `tol`, src kept in step. `raw` and `kept` keep
+    the input line and the indices of the vertices kept from it."""
     mask = dp_keep(poly["coords"], tol)
     out = dict(poly)
     out["coords"] = [c for c, k in zip(poly["coords"], mask) if k]
     out["src"] = [s for s, k in zip(poly["src"], mask) if k]
+    out["raw"] = poly["coords"]
+    out["kept"] = [i for i, k in enumerate(mask) if k]
     return out
 
 
@@ -172,23 +177,25 @@ def _stitch(members, ways):
 
 
 # ---------------------------------------------------------------- parallel collapse
-def _equirect_m(lon1, lat1, lon2, lat2):
-    mlat = math.radians((lat1 + lat2) * 0.5)
-    dx = (lon1 - lon2) * K * math.cos(mlat)
-    dy = (lat1 - lat2) * K
-    return math.hypot(dx, dy)
 
 
-def _dirs(coords, cos_ref):
-    """Unit direction (in metre space) of the polyline at each vertex, averaging
-    the incoming and outgoing segments. Direction is undirected for comparison."""
-    n = len(coords)
+def _segs(coords, cos_ref):
+    """Unit direction (in metre space) of each segment."""
     segs = []
-    for i in range(n - 1):
+    for i in range(len(coords) - 1):
         dx = (coords[i + 1][0] - coords[i][0]) * K * cos_ref
         dy = (coords[i + 1][1] - coords[i][1]) * K
         m = math.hypot(dx, dy) or 1.0
         segs.append((dx / m, dy / m))
+    return segs
+
+
+def _dirs(coords, cos_ref, segs=None):
+    """Unit direction (in metre space) of the polyline at each vertex, averaging
+    the incoming and outgoing segments. Direction is undirected for comparison."""
+    n = len(coords)
+    if segs is None:
+        segs = _segs(coords, cos_ref)
     if not segs:
         return [(1.0, 0.0)] * n
     out = []
@@ -204,35 +211,65 @@ def _dirs(coords, cos_ref):
     return out
 
 
-class _BearingGrid:
-    """Survivor vertices bucketed by metre cell, each carrying its track
+class _SegmentGrid:
+    """Survivor segments bucketed by metre cell, each carrying its track
     direction and the id of the feature it belongs to. A query returns the id of
     the nearest survivor that is both within `dist` and running the same
     direction (undirected) — so a crossing or a perpendicular near-pass never
-    shadows, and neither does a line merely sharing a corridor at an angle."""
+    shadows, and neither does a line merely sharing a corridor at an angle.
 
-    def __init__(self, cell_m, cos_ref):
-        self.cell = max(cell_m, 1e-6)
-        self.cos_ref = cos_ref
+    A segment is split into pieces no longer than a cell and filed under every
+    cell a piece's bounding box touches, so the 3x3 cells around a point hold
+    every segment within one cell of it. The cell must exceed any reach."""
+
+    CELL_M = 200.0  # measured: fewer inserts outweigh scanning more entries
+
+    def __init__(self, cos_ref):
+        self.fx = K * cos_ref / self.CELL_M
+        self.fy = K / self.CELL_M
         self.buckets = defaultdict(list)
 
-    def _cell(self, lon, lat):
-        return (int(lon * K * self.cos_ref // self.cell), int(lat * K // self.cell))
+    def add(self, lon0, lat0, lon1, lat1, length, ux, uy, fid, piece, band=None):
+        """File a segment `length` metres long."""
+        m = max(1, math.ceil(length / self.CELL_M))
+        fx, fy, buckets = self.fx, self.fy, self.buckets
+        for s in range(m):
+            alon, alat = lon0 + (lon1 - lon0) * s / m, lat0 + (lat1 - lat0) * s / m
+            blon, blat = lon0 + (lon1 - lon0) * (s + 1) / m, lat0 + (lat1 - lat0) * (s + 1) / m
+            x0, x1 = (alon, blon) if alon <= blon else (blon, alon)
+            y0, y1 = (alat, blat) if alat <= blat else (blat, alat)
+            entry = (x0, x1, y0, y1, alon, alat, blon, blat, ux, uy, fid, piece, band)
+            for gx in range(int(x0 * fx // 1), int(x1 * fx // 1) + 1):
+                for gy in range(int(y0 * fy // 1), int(y1 * fy // 1) + 1):
+                    buckets[(gx, gy)].append(entry)
 
-    def add(self, lon, lat, ux, uy, fid, piece):
-        self.buckets[self._cell(lon, lat)].append((lon, lat, ux, uy, fid, piece))
-
-    def shadow(self, lon, lat, ux, uy, dist_m, cos_tol):
-        """(feature id, output piece) of the nearest same-bearing survivor
-        vertex, or None. The piece is the emitted feature that draws it."""
-        cx, cy = self._cell(lon, lat)
+    def shadow(self, lon, lat, bearings, dist_m, cos_tol, band=None):
+        """(feature id, output piece) of the nearest survivor segment that
+        agrees with one of `bearings`, or None. The piece is the emitted feature
+        that draws it. A known speed band is shadowed only by its own band;
+        unknown by any."""
+        cx, cy = int(lon * self.fx // 1), int(lat * self.fy // 1)
+        sx = K * math.cos(math.radians(lat))
+        rx, ry = dist_m / sx, dist_m / K
         best, best_d = None, dist_m
+        get = self.buckets.get
         for gx in (cx - 1, cx, cx + 1):
             for gy in (cy - 1, cy, cy + 1):
-                for (olon, olat, oux, ouy, fid, piece) in self.buckets.get((gx, gy), ()):
-                    if abs(ux * oux + uy * ouy) < cos_tol:
+                for (x0, x1, y0, y1, alon, alat, blon, blat, oux, ouy, fid, piece, oband) in get((gx, gy), ()):
+                    if lon < x0 - rx or lon > x1 + rx or lat < y0 - ry or lat > y1 + ry:
+                        continue                      # beyond reach of the bounding box
+                    if band is not None and oband != band:
+                        continue
+                    for ux, uy in bearings:
+                        if abs(ux * oux + uy * ouy) >= cos_tol:
+                            break
+                    else:
                         continue                      # bearings disagree
-                    d = _equirect_m(lon, lat, olon, olat)
+                    ax, ay = (alon - lon) * sx, (alat - lat) * K
+                    dx, dy = (blon - alon) * sx, (blat - alat) * K
+                    lensq = dx * dx + dy * dy
+                    t = 0.0 if lensq == 0 else max(0.0, min(1.0, -(ax * dx + ay * dy) / lensq))
+                    d = math.hypot(ax + t * dx, ay + t * dy)
                     if d < best_d:
                         best, best_d = (fid, piece), d
         return best
@@ -252,11 +289,12 @@ def collapse(polys, dist_m, cos_ref, bearing_tol_deg=20.0):
       - one survivor for the entire deleted run (rejects station throats and
         corridors, where the shadow is a patchwork of different features)
       - endpoints and junction vertices are never dropped, so no gap opens at a
-        connection point; the longest feature is processed first and kept whole,
-        so a survivor is never severed.
+        connection point; features with a known speed go first, then the
+        longest, and the first is kept whole.
 
     Caller must group by render key before calling: only identically-rendered
-    track may merge.
+    track may merge. A poly's `band` narrows that: a known band merges only
+    into its own band, an unknown (None) into any.
 
     A surviving feature records the source ids of the runs it replaced in
     `absorbed`, so a client matching a route by way id still finds the track
@@ -265,7 +303,9 @@ def collapse(polys, dist_m, cos_ref, bearing_tol_deg=20.0):
     if len(polys) < 2:
         return list(polys)
     cos_tol = math.cos(math.radians(bearing_tol_deg))
-    order = sorted(range(len(polys)), key=lambda i: len(polys[i]["coords"]), reverse=True)
+    # Known speed first, so a parallel track with no speed is drawn as its neighbour.
+    order = sorted(range(len(polys)),
+                   key=lambda i: (polys[i].get("maxspeed") is None, -len(polys[i]["coords"])))
 
     # every feature's own endpoints are junction candidates; never drop them
     junctions = set()
@@ -273,14 +313,24 @@ def collapse(polys, dist_m, cos_ref, bearing_tol_deg=20.0):
         junctions.add((round(p["coords"][0][0], 7), round(p["coords"][0][1], 7)))
         junctions.add((round(p["coords"][-1][0], 7), round(p["coords"][-1][1], 7)))
 
-    grid = _BearingGrid(dist_m, cos_ref)
+    grid = _SegmentGrid(cos_ref)
     out = []
     for fid, idx in enumerate(order):
         p = polys[idx]
         coords, src = p["coords"], p["src"]
         n = len(coords)
-        dirs = _dirs(coords, cos_ref)
-        hits = [grid.shadow(coords[i][0], coords[i][1], dirs[i][0], dirs[i][1], dist_m, cos_tol)
+        band = p.get("band")
+        segs = _segs(coords, cos_ref)
+        dirs = _dirs(coords, cos_ref, segs)
+        raw = p.get("raw", coords)
+        kept = p.get("kept") or range(n)
+        # The survivor is filed by its unsimplified segments, so compare those
+        # of this vertex too; at a corner the simplified bisector and segments
+        # may each be off from the survivor's local direction.
+        hits = [grid.shadow(coords[i][0], coords[i][1],
+                            (dirs[i], *segs[max(i - 1, 0):i + 1],
+                             *_segs(raw[max(kept[i] - 1, 0):kept[i] + 2], cos_ref)),
+                            dist_m, cos_tol, band)
                 for i in range(n)]
         for i in range(n):
             if i == 0 or i == n - 1 or (round(coords[i][0], 7), round(coords[i][1], 7)) in junctions:
@@ -302,10 +352,38 @@ def collapse(polys, dist_m, cos_ref, bearing_tol_deg=20.0):
                 piece_of[i] = hits[i][1]
                 out[piece_of[i]]["absorbed"].add(src[i])
 
-        kept_dirs = _dirs(coords, cos_ref)
-        for i in range(n):
-            grid.add(coords[i][0], coords[i][1], kept_dirs[i][0], kept_dirs[i][1], fid, piece_of[i])
+        _add_segments(grid, p, piece_of, cos_ref, fid, band)
     return out
+
+
+def fine_index(coords):
+    """Indices of the vertices DP keeps at FINE_TOL_DEG: the line collapse
+    files a survivor by, computed once rather than per zoom."""
+    return [i for i, k in enumerate(dp_keep(coords, FINE_TOL_DEG)) if k]
+
+
+def _add_segments(grid, p, piece_of, cos_ref, fid, band):
+    """File the feature's line in the grid at FINE_TOL_DEG, not as simplified
+    for this zoom. Simplification keeps different vertices on two parallel
+    tracks, so on a curve a vertex can lie beyond the chord the survivor's
+    simplified line cuts. `fine` indexes `raw` like `kept`; without it every
+    raw vertex is used."""
+    raw = p.get("raw", p["coords"])
+    kept = p.get("kept") or range(len(p["coords"]))
+    fine = p.get("fine")
+    for j in range(len(kept) - 1):
+        piece = piece_of[j] if piece_of[j] is not None else piece_of[j + 1]
+        a, b = kept[j], kept[j + 1]
+        if fine is None:
+            idx = range(a, b + 1)
+        else:
+            idx = [a, *fine[bisect.bisect_right(fine, a):bisect.bisect_left(fine, b)], b]
+        for r0, r1 in zip(idx, idx[1:]):
+            (x0, y0), (x1, y1) = raw[r0], raw[r1]
+            dx, dy = (x1 - x0) * K * cos_ref, (y1 - y0) * K
+            length = math.hypot(dx, dy)
+            if length:
+                grid.add(x0, y0, x1, y1, length, dx / length, dy / length, fid, piece, band)
 
 
 def _drop_single_survivor_runs(coords, src, shadow):

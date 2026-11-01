@@ -27,6 +27,7 @@ Every tippecanoe call passes --no-feature-limit --no-tile-size-limit: nothing
 is ever dropped (rule 1). Verified locally that these keep feature counts whole.
 """
 import argparse
+import bisect
 import json
 import os
 import subprocess
@@ -187,11 +188,14 @@ def segment_chain(ch, z, mean_lat):
         # Vertex lo may be a junction tagged with the previous way; the
         # sub-chain's first way, and so its osm_id, is its first segment's.
         s = [src[lo + 1]] + src[lo + 1:hi + 2]
+        fine = ch.get("fine")
+        if fine is not None:
+            fine = [i - lo for i in fine[bisect.bisect_left(fine, lo):bisect.bisect_right(fine, hi + 1)]]
         subs.append({
-            "coords": c, "src": s, "props": ch["props"], "maxspeed": ms,
+            "coords": c, "src": s, "props": ch["props"], "maxspeed": ms, "fine": fine,
             "tunnel": tun[lo], "bridge": brg[lo], "protection": prot[lo],
-            "radio": rad[lo], "traffic_mode": traf[lo], "colour": col[lo],
-            "key": (ch["key"], band[lo], tun[lo], brg[lo],
+            "radio": rad[lo], "traffic_mode": traf[lo], "colour": col[lo], "band": band[lo],
+            "key": (ch["key"], tun[lo], brg[lo],
                     prot[lo] and prot[lo][0], rad[lo], traf[lo], col[lo]),
         })
 
@@ -350,10 +354,12 @@ def main():
     cos_lat = math.cos(math.radians(mean_lat))
     for ch in chains:
         ch["seg_attrs"] = seg_attrs(ch, cos_lat, id2props)
+        ch["fine"] = G.fine_index(ch["coords"])
 
     raw = []
     for w in ways:
         raw.append({"coords": w["coords"], "src": [w["id"]] * len(w["coords"]),
+                    "fine": G.fine_index(w["coords"]),
                     "props": w["props"], "key": C.render_key(w["props"]),
                     "maxspeed": C.speed_of(w["props"]),
                     "tunnel": C.is_tunnel(w["props"]), "bridge": C.is_bridge(w["props"]),
