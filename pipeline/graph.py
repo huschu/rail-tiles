@@ -28,7 +28,9 @@ fixed width so the app copies them out without parsing:
          leaving a, f32 heading leaving b, i32 first inner vertex
          (E + 1 offsets)
   inner vertices: i32 lon, i32 lat
-  stations: u8-prefixed id, u16 count, i32 junctions
+  stations: u8-prefixed id, u16-prefixed name, u8-prefixed kind, i32 lon,
+            i32 lat, u16 count, i32 junctions; every station a train stops at
+            (TRAIN_STATIONS), with or without stop positions on track
 
 Usage: graph.py IN-rail.osm.pbf OUT.rltg.zst
 """
@@ -286,7 +288,10 @@ def station_stops(g, pbf):
     return {sid: sorted(js) for sid, js in out.items()}, stations
 
 
-VERSION = 1
+VERSION = 2
+
+# Station kinds the app finds trips between.
+TRAIN_STATIONS = ("train", "light_rail")
 
 
 def _vocab(values):
@@ -323,8 +328,8 @@ def _e7(v):
     return round(v * 1e7)
 
 
-def write(g, table, path):
-    """The graph and its station table as the app's file (module docstring)."""
+def write(g, table, stations, path):
+    """The graph and its stations as the app's file (module docstring)."""
     order = sorted(range(len(g.node_id)), key=g.node_id.__getitem__)
     new = [0] * len(order)
     for i, j in enumerate(order):
@@ -338,7 +343,8 @@ def write(g, table, path):
             vlat.append(_e7(lat))
         starts.append(len(vlon))
     b = bytearray(b"RLTG")
-    b += struct.pack("<5I", VERSION, len(order), E, len(vlon), len(table))
+    listed = sorted(sid for sid, st in stations.items() if st["kind"] in TRAIN_STATIONS)
+    b += struct.pack("<5I", VERSION, len(order), E, len(vlon), len(listed))
     for words, _ in vocabs:
         b += _strings(words)
     b += _arr("q", (g.node_id[j] for j in order))
@@ -359,10 +365,14 @@ def write(g, table, path):
     b += _arr("i", starts)
     b += _arr("i", vlon)
     b += _arr("i", vlat)
-    for sid in sorted(table):
-        u = sid.encode()
-        js = table[sid][:65535]
-        b += bytes([len(u)]) + u + struct.pack("<H", len(js)) + _arr("i", (new[j] for j in js))
+    for sid in listed:
+        st = stations[sid]
+        name = (st["name"] or "").encode()[:65535]
+        kind = st["kind"].encode()
+        js = table.get(sid, [])[:65535]
+        b += bytes([len(sid)]) + sid.encode() + struct.pack("<H", len(name)) + name
+        b += bytes([len(kind)]) + kind + struct.pack("<iiH", _e7(st["lon"]), _e7(st["lat"]), len(js))
+        b += _arr("i", (new[j] for j in js))
     with open(path, "wb") as f:
         f.write(zstd.compress(bytes(b), level=19))
     return len(b)
@@ -373,9 +383,9 @@ def main():
         sys.exit("usage: graph.py IN-rail.osm.pbf OUT.rltg.zst")
     pbf, out = sys.argv[1:]
     g = build(read_opl(pbf))
-    table, _ = station_stops(g, pbf)
-    raw = write(g, table, out)
-    print(f"{len(g.node_id)} junctions, {g.edge_count} edges, {len(table)} stations; "
+    table, stations = station_stops(g, pbf)
+    raw = write(g, table, stations, out)
+    print(f"{len(g.node_id)} junctions, {g.edge_count} edges, {len(stations)} stations; "
           f"{raw / 1e6:.1f} MB raw")
 
 
