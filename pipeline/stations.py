@@ -22,6 +22,7 @@ when one is opened.
 import json
 import math
 import os
+import re
 import subprocess
 import tempfile
 from collections import defaultdict
@@ -85,11 +86,39 @@ def _centroid(ring):
     return (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
 
 
+_LANGUAGE = re.compile(r"[a-z]{2,3}([-_][A-Za-z0-9]{2,8})*")
+_OTHER_NAMES = {"int_name": "int", "alt_name": "alt", "official_name": "official"}
+
+
+def other_names(tags):
+    """[[key, name]] of a station's names besides `name`: name:en as "en",
+    int_name, alt_name and official_name as "int", "alt" and "official".
+    The trip planner finds a station by any of them and shows the one in
+    the phone's language."""
+    own = (tags.get("name") or "").strip()
+    out, seen = [], {own}
+    # Languages first: an int_name repeating name:en adds nothing to search.
+    for k, v in sorted(tags.items(), key=lambda kv: (not kv[0].startswith("name:"), kv[0])):
+        if k.startswith("name:") and _LANGUAGE.fullmatch(k[5:]):
+            key = k[5:]
+        elif k in _OTHER_NAMES:
+            key = _OTHER_NAMES[k]
+        else:
+            continue
+        for name in (v.split(";") if key == "alt" else [v]):
+            name = name.strip()
+            if name and name != own and (key in _OTHER_NAMES.values()) <= (name not in seen):
+                out.append([key, name])
+                seen.add(name)
+    return out
+
+
 def read_points(pbf):
     """Stations and stop positions of the filtered extract.
 
     Returns ({"n<id>": station}, {"n<id>": (lon, lat)}). A station is
-    {id, name, kind, halt, lon, lat}."""
+    {id, name, names, kind, halt, lon, lat}, names as other_names gives
+    them."""
     with tempfile.TemporaryDirectory() as tmp:
         sub = os.path.join(tmp, "stations.osm.pbf")
         out = os.path.join(tmp, "stations.geojsonseq")
@@ -133,7 +162,7 @@ def read_points(pbf):
                     continue
                 kind = station_kind(p)
                 if kind is not None:
-                    stations[oid] = {"id": oid, "name": p.get("name"), "kind": kind,
+                    stations[oid] = {"id": oid, "name": p.get("name"), "names": other_names(p), "kind": kind,
                                      "halt": p.get("railway") == "halt", "lon": lon, "lat": lat}
                 elif oid.startswith("n"):
                     stops[oid] = (lon, lat)
@@ -255,7 +284,8 @@ def services(rids, rel_by_id):
     """One entry per service calling at a station, sorted main-line first:
     [route, title, colour or None, network or None, [relation ids]]."""
     groups = {}
-    for rid in rids:
+    # In id order, so a group's colour does not depend on the hash seed.
+    for rid in sorted(rids, key=int):
         tags = rel_by_id[rid]["tags"]
         title = service_title(tags)
         if title is None:
@@ -294,6 +324,10 @@ def merge(feature_lists):
             m["tippecanoe"]["minzoom"] = min(m["tippecanoe"]["minzoom"], f["tippecanoe"]["minzoom"])
             if not m["properties"].get("name") and f["properties"].get("name"):
                 m["properties"]["name"] = f["properties"]["name"]
+            names = m["properties"].get("names", []) + [n for n in f["properties"].get("names", [])
+                                                         if n not in m["properties"].get("names", [])]
+            if names:
+                m["properties"]["names"] = names
             groups = {}
             for props in (m["properties"], f["properties"]):
                 for route, title, colour, network, ids in json.loads(props.get("routes") or "[]"):
@@ -335,6 +369,8 @@ def features(pbf, opl_lines):
         props = {"osm_id": sid, "kind": s["kind"]}
         if s["name"]:
             props["name"] = s["name"]
+        if s["names"]:
+            props["names"] = s["names"]
         if s["halt"]:
             props["halt"] = True
         if entries:

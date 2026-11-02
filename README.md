@@ -171,13 +171,18 @@ map:
 
 | asset | contents |
 |---|---|
-| `track-graph-<tag>.rltg.pmtiles` | PMTiles, tile type 0, one zoom (`trackGraph.zoom`, 7): each tile a zstd frame of `graph.py`'s graph file with every edge that has an end in the tile |
-| `track-stations-<tag>.rlts.zst` | `graph.py`'s station file: every train and light rail station with its name, position, services and stop positions as node ids |
+| `track-graph-<tag>.rltg.pmtiles` | PMTiles, tile type 0, one zoom (`trackGraph.zoom`, 8): each tile a zstd frame of `graph.py`'s graph file with every edge that has an end in the tile |
+| `track-stations-<tag>.rlts.zst` | `graph.py`'s station file: every train and light rail station with its name and its names in other languages, position, services and stop positions as node ids |
+
+The graph holds only what a search needs: track a train can use, junctions
+where a train can turn off or stop, edges listing the ways they cover, and
+outlines within 5 m of the track for drawing a trip. Germany takes 5.9 MB
+in 55 chunks.
 
 The app searches stations by name in the station file, then loads the chunks
-a search reaches: the chunk a junction lies in holds every edge at that
+along a trip: the chunk a junction lies in holds every edge at that
 junction, since an edge between two chunks is in both. It joins chunks by OSM
-node id and drops an edge it already has by way and first vertex.
+node id and drops an edge identical to one it already has.
 
 Each region builds its graph from its whole extract into
 `<region>.graph.jsonl.zst`, border ways included: the border partition would
@@ -188,7 +193,8 @@ branch finds a junction there even when the neighbour was carried forward
 with an older version of the way. Station names, positions and services
 are the map's, from the same station sidecars and merge as the stations
 layer; the graphs add the stop positions. A Germany-only join gives the same
-edges as `graph.py` on the extract; Germany, Austria, Switzerland,
+edges as `graph.py` on the extract, and the app's search costs on it what
+`search.py` costs on the unmerged graph; Germany, Austria, Switzerland,
 Liechtenstein and Italy together find paths across every border between
 them.
 

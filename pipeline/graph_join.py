@@ -7,8 +7,8 @@ The chunks are the tiles of one zoom (graph.CHUNK_ZOOM) in a PMTiles
 archive: tile type 0, each tile one zstd frame of graph.py's file holding
 every edge with an end in the tile. An edge between two chunks is in both,
 so loading the chunk a junction lies in gives every edge at that junction.
-The app joins chunks by OSM node id and drops an edge it already has by way
-and first vertex.
+The app joins chunks by OSM node id and drops an edge identical to one it
+already has.
 
 Regions overlap at borders, and each cuts a way only where its own ways
 meet it, so the join gathers every region's copy of a way and cuts the
@@ -200,65 +200,97 @@ def write_stations(regions_dir, stops, path):
     return sum(1 for f in features if f["properties"]["kind"] in G.TRAIN_STATIONS)
 
 
+class _Reader:
+    def __init__(self, raw, pos):
+        self.raw, self.pos = raw, pos
+
+    def varint(self):
+        v = shift = 0
+        while True:
+            c = self.raw[self.pos]
+            self.pos += 1
+            v |= (c & 0x7F) << shift
+            if c < 0x80:
+                return v
+            shift += 7
+
+    def zigzag(self):
+        v = self.varint()
+        return v >> 1 if not v & 1 else -(v >> 1) - 1
+
+    def column(self, n, signed=False):
+        read = self.zigzag if signed else self.varint
+        return [read() for _ in range(n)]
+
+    def u16(self, n):
+        out = struct.unpack_from(f"<{n}H", self.raw, self.pos)
+        self.pos += 2 * n
+        return out
+
+    def u8(self, n):
+        out = self.raw[self.pos:self.pos + n]
+        self.pos += n
+        return out
+
+
 def decode(raw):
     """graph.py's file as {"junctions": {node id: (lon, lat, stop)}, "edges":
-    [(way, a node, b node, i0, i1, class, [(lon, lat)])]}, coordinates in
-    degrees."""
-    from array import array
-
-    def take(code, n):
-        nonlocal pos
-        a = array(code)
-        a.frombytes(raw[pos:pos + n * a.itemsize])
-        pos += n * a.itemsize
-        if sys.byteorder != "little":
-            a.byteswap()
-        return a
-
+    [(a node, b node, (heading leaving a, leaving b), [(way, length m, class)],
+    [(lon, lat)] from a to b)]}, coordinates in degrees."""
     if raw[:4] != b"RLTG":
         raise ValueError("not a track graph")
-    _, n, e, v = struct.unpack_from("<4I", raw, 4)
-    pos = 20
-    vocabs = []
-    for _ in range(4):
-        words = []
-        count = raw[pos]; pos += 1
-        for _ in range(count):
-            ln = raw[pos]; pos += 1
-            words.append(raw[pos:pos + ln].decode() or None); pos += ln
-        vocabs.append(words)
-    nid, lon, lat, flags = take("q", n), take("i", n), take("i", n), take("B", n)
-    way, a, b, i0, i1 = take("q", e), take("i", e), take("i", e), take("i", e), take("i", e)
-    take("f", e)
-    codes = [take("B", e) for _ in range(4)]
-    speed = take("H", e)
-    take("f", e); take("f", e)
-    starts, vlon, vlat = take("i", e + 1), take("i", v), take("i", v)
+    if struct.unpack_from("<I", raw, 4)[0] != G.VERSION:
+        raise ValueError("another track graph version")
+    r = _Reader(raw, 8)
+    n, e, p, v, c = (r.varint() for _ in range(5))
+    words = [[r.u8(r.varint()).decode() or None for _ in range(r.varint())] for _ in range(4)]
+    classes = []
+    for _ in range(c):
+        codes = [r.varint() for _ in range(5)]
+        classes.append(tuple(words[m][codes[m]] for m in range(4)) + (codes[4] or None,))
+    nid = list(accumulate(r.column(n)))
+    lon, lat = list(accumulate(r.column(n, True))), list(accumulate(r.column(n, True)))
+    flags = r.u8(n)
+    a = list(accumulate(r.column(e)))
+    b = [x + y for x, y in zip(a, r.column(e, True))]
+    head_a, head_b = r.u16(e), r.u16(e)
+    piece_count, outline_count = r.column(e), r.column(e)
+    ways = list(accumulate(r.column(p, True)))
+    lengths, piece_class = r.column(p), r.column(p)
+    dlon, dlat = r.column(v, True), r.column(v, True)
     junctions = {nid[j]: (lon[j] / 1e7, lat[j] / 1e7, bool(flags[j])) for j in range(n)}
-    edges = []
-    for k in range(e):
-        cls = tuple(vocabs[m][codes[m][k]] for m in range(4)) + (speed[k] or None,)
-        pa, pb = junctions[nid[a[k]]], junctions[nid[b[k]]]
-        inner = [(vlon[q] / 1e7, vlat[q] / 1e7) for q in range(starts[k], starts[k + 1])]
-        edges.append((way[k], nid[a[k]], nid[b[k]], i0[k], i1[k], cls, [pa[:2], *inner, pb[:2]]))
+    edges, q, k = [], 0, 0
+    for i in range(e):
+        pieces = [(ways[x], lengths[x] / 10, classes[piece_class[x]]) for x in range(q, q + piece_count[i])]
+        q += piece_count[i]
+        x, y = lon[a[i]], lat[a[i]]
+        outline = [(lon[a[i]] / 1e7, lat[a[i]] / 1e7)]
+        for m in range(k, k + outline_count[i]):
+            x, y = x + dlon[m], y + dlat[m]
+            outline.append((x / 1e7, y / 1e7))
+        k += outline_count[i]
+        outline.append((lon[b[i]] / 1e7, lat[b[i]] / 1e7))
+        edges.append((nid[a[i]], nid[b[i]], (head_a[i] * 360 / 65536, head_b[i] * 360 / 65536), pieces, outline))
     return {"junctions": junctions, "edges": edges}
 
 
 def load(path):
     """Every chunk of an archive joined into one graph.Graph, as the app joins
-    the chunks it loads."""
+    the chunks it loads: an edge in two chunks comes in once. Its two copies
+    read the same field for field; one way can run between the same two
+    junctions twice, as tiny loops do, so nothing less tells them apart."""
     arc = Archive(path)
     g, seen, stops = G.Graph(), set(), set()
     try:
         for _, off, ln in arc.tiles():
             part = decode(arc.tile_at(off, ln))
             stops.update(nid for nid, (_, _, stop) in part["junctions"].items() if stop)
-            for wid, na, nb, i0, i1, cls, pts in part["edges"]:
-                if (wid, i0) in seen:
+            for na, nb, heads, pieces, outline in part["edges"]:
+                key = (na, nb, heads, tuple(pieces), tuple(outline))
+                if key in seen:
                     continue
-                seen.add((wid, i0))
-                nodes = [(na, *pts[0])] + [(0, *p) for p in pts[1:-1]] + [(nb, *pts[-1])]
-                g.add_edge(wid, cls, nodes, i0, i1)
+                seen.add(key)
+                g.add_chain((na, *outline[0]), (nb, *outline[-1]), pieces, outline, heads)
     finally:
         arc.mm.close()
         arc.f.close()

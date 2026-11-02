@@ -130,5 +130,14 @@ class Kind(unittest.TestCase):
         self.assertEqual(S.station_kind({"railway": "tram_stop"}), "tram")
 
 
+
+class OtherNames(unittest.TestCase):
+    def test_a_station_keeps_its_names_in_other_languages_and_scripts(self):
+        tags = {"name": "東京", "name:en": "Tokyo", "name:ja-Latn": "Tōkyō", "name:ja": "東京",
+                "int_name": "Tokyo", "alt_name": "Tokio;Tōkyō-eki", "name:etymology:wikidata": "Q1"}
+        self.assertEqual(S.other_names(tags),
+                         [["en", "Tokyo"], ["ja-Latn", "Tōkyō"], ["alt", "Tokio"], ["alt", "Tōkyō-eki"]])
+
+
 if __name__ == "__main__":
     unittest.main()

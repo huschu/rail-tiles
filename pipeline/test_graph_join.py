@@ -9,6 +9,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import graph as G
 import graph_join as J
+import search as S
 
 RAIL = ["rail", None, "main", None, 160]
 
@@ -72,7 +73,8 @@ class WayEdges(unittest.TestCase):
 
 class Stations(unittest.TestCase):
     def test_the_station_file_lists_train_stations_with_their_stops(self):
-        feats = [{"properties": {"osm_id": "n2", "kind": "train", "name": "Basel SBB", "routes": '[["train"]]'},
+        feats = [{"properties": {"osm_id": "n2", "kind": "train", "name": "Basel SBB", "routes": '[["train"]]',
+                                 "names": [["fr", "Bâle CFF"]]},
                   "geometry": {"coordinates": [7.5895, 47.5474]}},
                  {"properties": {"osm_id": "n1", "kind": "tram", "name": "Bankverein"},
                   "geometry": {"coordinates": [7.59, 47.55]}}]
@@ -83,6 +85,11 @@ class Stations(unittest.TestCase):
         pos = 15
         name_len, = struct.unpack_from("<H", raw, pos)
         pos += 2 + name_len
+        self.assertEqual(raw[pos], 1)
+        self.assertEqual(raw[pos + 1:pos + 4], b"\x02fr")
+        other_len, = struct.unpack_from("<H", raw, pos + 4)
+        self.assertEqual(raw[pos + 6:pos + 6 + other_len].decode(), "Bâle CFF")
+        pos += 6 + other_len
         pos += 1 + raw[pos]
         lon, lat, count = struct.unpack_from("<iiH", raw, pos)
         pos += 10
@@ -100,7 +107,9 @@ def opl_way(wid, nodes, version=1):
 
 
 def pieces(g):
-    return sorted((g.way[e], g.i0[e], g.i1[e]) for e in range(g.edge_count))
+    """Each edge as its ways and end nodes."""
+    return sorted((tuple(p[0] for p in S.pieces(g, e)), g.node_id[g.a[e]], g.node_id[g.b[e]])
+                  for e in range(g.edge_count))
 
 
 @unittest.skipUnless(shutil.which("zstd"), "needs the zstd command")
@@ -121,6 +130,23 @@ class Sidecar(unittest.TestCase):
             self.assertEqual(list(spill.paths), [G.tile_of(10.0, 50.0)])
             joined = J.chunk(spill.paths[G.tile_of(10.0, 50.0)])
         self.assertEqual(pieces(joined), pieces(g))
+
+    def test_a_way_cut_at_a_halt_joins_back_whole(self):
+        line = [(1, 10.0, 50.0), (2, 10.01, 50.0), (3, 10.02, 50.0), (4, 10.03, 50.0)]
+        g = G.build([opl_way(70, line)])
+        G._track_beside(g, [{"id": "n9", "kind": "train", "lon": 10.01, "lat": 50.001},
+                            {"id": "n8", "kind": "train", "lon": 10.02, "lat": 50.001}])
+        with tempfile.TemporaryDirectory() as tmp:
+            side = os.path.join(tmp, "x.graph.jsonl.zst")
+            G.sidecar(g, {}, side)
+            buckets, _ = J.split([side], tmp)
+            lines = [l for path in buckets for ls in J.bucket(path)[0].values() for l in ls]
+            chunk = os.path.join(tmp, "c.jsonl")
+            with open(chunk, "w") as f:
+                f.writelines(lines)
+            joined = J.chunk(chunk)
+        self.assertEqual(pieces(joined), pieces(g))
+        self.assertEqual(sorted(joined.length), sorted(g.length))
 
     def test_a_sidecar_of_another_format_is_skipped(self):
         from compression import zstd
@@ -150,9 +176,70 @@ class Archive(unittest.TestCase):
                     data.write(blob)
                 J.write_archive(ents, bounds, data, path)
             g = J.load(path)
-        self.assertEqual(pieces(g), [(8, 0, 1), (9, 0, 1)])
+        # Node 2 joins two ways but stays: way 8 crosses into the next chunk.
+        self.assertEqual(pieces(g), [((8,), 1, 2), ((9,), 2, 3)])
         self.assertEqual(sorted(g.node_id), [1, 2, 3])
         self.assertTrue(g.stop[g.node_index[1]])
+
+
+class Encode(unittest.TestCase):
+    def test_track_a_train_passes_without_a_choice_merges_into_one_edge(self):
+        # Ways 70, 71 and 72 run on in a line inside one chunk; node 3 is a
+        # stop, so the merged edges end there.
+        line = [(1, 10.0, 50.0), (2, 10.01, 50.0), (3, 10.02, 50.0), (4, 10.03, 50.0), (5, 10.04, 50.0)]
+        g = G.build([opl_way(70, line[:2]), opl_way(71, line[1:4]), opl_way(72, line[3:]),
+                     "n3 v1 dV c0 t2026-01-01T00:00:00Z i0 u Trailway=stop x10.02 y50.0\n"])
+        part = J.decode(G.encode(g))
+        self.assertEqual(sorted((a, b, [p[0] for p in ps]) for a, b, _, ps, _ in part["edges"]),
+                         [(1, 3, [70, 71]), (3, 5, [71, 72])])
+        self.assertEqual(sorted(part["junctions"]), [1, 3, 5])
+        whole = sum(g.length)
+        self.assertAlmostEqual(sum(p[1] for _, _, _, ps, _ in part["edges"] for p in ps), whole, places=3)
+
+    def test_a_merged_edge_costs_what_its_pieces_do(self):
+        line = [(1, 10.0, 50.0), (2, 10.01, 50.0), (3, 10.02, 50.0)]
+        slow = opl_way(71, line[1:]).replace("usage=main", "usage=main,maxspeed=60")
+        g = G.build([opl_way(70, line[:2]), slow])
+        expected, _ = S.find(g, [g.node_index[1]], g.node_index[3], S.train_factor(g))
+        with tempfile.TemporaryDirectory() as tmp:
+            merged = G.Graph()
+            for a, b, heads, ps, outline in J.decode(G.encode(g))["edges"]:
+                merged.add_chain((a, *outline[0]), (b, *outline[-1]), ps, outline, heads)
+        self.assertEqual(merged.edge_count, 1)
+        cost, _ = S.find(merged, [merged.node_index[1]], merged.node_index[3], S.train_factor(merged))
+        self.assertAlmostEqual(cost, expected, places=3)
+
+    def test_an_outline_keeps_the_bends(self):
+        # A way bending 50 m off its line between two straight stretches.
+        pts = [(1, 10.0, 50.0), (2, 10.001, 50.0), (3, 10.002, 50.0), (4, 10.003, 50.00045),
+               (5, 10.004, 50.0), (6, 10.005, 50.0)]
+        _, _, _, _, outline = J.decode(G.encode(G.build([opl_way(70, pts)])))["edges"][0]
+        self.assertEqual(len(outline), 5)
+
+
+class Halts(unittest.TestCase):
+    def test_a_station_without_stop_positions_starts_from_the_track_beside_it(self):
+        g = G.build([opl_way(70, [(1, 10.0, 50.0), (2, 10.01, 50.0), (3, 10.02, 50.0)])])
+        station = {"id": "n9", "kind": "train", "lon": 10.0101, "lat": 50.0005}
+        self.assertEqual(G._track_beside(g, [station]), {"n9": g.node_index[2]})
+        self.assertEqual(G._track_beside(g, [{**station, "lat": 50.01}]), {})
+
+    def test_the_track_node_beside_a_halt_becomes_a_junction(self):
+        g = G.build([opl_way(70, [(1, 10.0, 50.0), (2, 10.005, 50.0), (3, 10.01, 50.0)])])
+        self.assertEqual(g.edge_count, 1)
+        j = G._track_beside(g, [{"id": "n9", "kind": "train", "lon": 10.005, "lat": 50.001}])["n9"]
+        self.assertEqual(g.node_id[j], 2)
+        self.assertEqual(sorted((g.i0[e], g.i1[e]) for e in range(g.edge_count)), [(0, 1), (1, 2)])
+        self.assertAlmostEqual(sum(g.length), G._length([(10.0, 50.0), (10.005, 50.0), (10.01, 50.0)]), places=1)
+
+
+class Tracks(unittest.TestCase):
+    def test_tram_track_stays_only_where_a_train_route_runs(self):
+        tram = "w71 v1 dV c0 t2026-01-01T00:00:00Z i0 u Trailway=tram N" + "n2x10.01y50.0,n3x10.02y50.0\n"
+        lone = "w72 v1 dV c0 t2026-01-01T00:00:00Z i0 u Trailway=tram N" + "n3x10.02y50.0,n4x10.03y50.0\n"
+        route = "r5 v1 dV c0 t2026-01-01T00:00:00Z i0 u Troute=train Mw71@\n"
+        g = G.build([opl_way(70, [(1, 10.0, 50.0), (2, 10.01, 50.0)]), tram, lone, route])
+        self.assertEqual(sorted(g.version), [70, 71])
 
 
 if __name__ == "__main__":

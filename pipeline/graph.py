@@ -8,36 +8,58 @@ coordinates. This reads the filtered extract with node ids instead.
 A junction is a node two or more kept ways share, a way's end, or a stop
 position (so a trip can start or end at a platform). An edge is the piece of
 one way between two junctions, carrying the way id, its vertex range in the
-way, its length and the classification the tiles use.
+way, its length and the classification the tiles use. Only track a train can
+run on is kept: rail, narrow gauge and light rail in use, disused or being
+built, and any track a train or light rail route runs over. A station
+without stop positions gets the nearest track node within HALT_TRACK_M as
+one, so every station a train can reach has a junction to start from.
 
 Trains cannot turn sharply at a junction, so the search runs over directed
 edges (search.py) and needs the heading at each end of an edge. A heading is
 read over HEADING_M of track, not the last segment alone, which is often a few
 centimetres long at a switch.
 
-The file the app reads (write) is one zstd frame of little-endian arrays,
-fixed width so the app copies them out without parsing:
+The file the app reads (encode) holds only what a search needs. A junction
+two pieces of track merely meet at, where a train can neither turn off nor
+stop, is merged away: the file's edges run between the remaining junctions
+and list the pieces of way they cover. Only a chunk's own track merges
+(through), so an edge crossing a chunk border stays as it is in both chunks.
+An edge's outline keeps a vertex wherever the track bends more than
+OUTLINE_M off the straight line, which is what a trip's path draws and
+keeps. Lengths are whole decimetres and headings 1/65536 of a turn, as the
+graph holds them already, so the app's search costs what search.py's does.
 
-  "RLTG", u32 version, u32 junctions N, edges E, inner vertices V
-  vocabularies: kind, lifecycle, usage, service, each u8 count + u8-prefixed
-                UTF-8 strings; index 0 is "", no value
-  junctions, sorted by node id: i64 node id, i32 lon, i32 lat (1e-7 degrees),
-                u8 flags (1 = stop position)
-  edges: i64 way, i32 a, i32 b, i32 i0, i32 i1, f32 length (m), u8 kind,
-         lifecycle, usage, service, u16 maxspeed (0 unknown), f32 heading
-         leaving a, f32 heading leaving b, i32 first inner vertex
-         (E + 1 offsets)
-  inner vertices: i32 lon, i32 lat
+One zstd frame of columns; v is an unsigned LEB128 varint, z a zigzag one:
+
+  "RLTG", u32 version, v junctions N, edges E, pieces P, outline vertices V,
+      classes C
+  vocabularies: kind, lifecycle, usage, service, each v count + v-prefixed
+      UTF-8 strings; index 0 is "", no value
+  classes: C x (v kind, v lifecycle, v usage, v service, v maxspeed (km/h,
+      0 unknown))
+  junctions, sorted by node id: N x v node id less the one before; N x z
+      lon, N x z lat (1e-7 degrees), each less the one before; N x u8 flags
+      (1 = stop position)
+  edges, sorted by a, then b: E x v a (junction index) less the edge
+      before's, E x z b less a; E x u16 heading leaving a, E x u16 heading
+      leaving b
+      (1/65536 of a turn from north); E x v pieces; E x v outline vertices
+  pieces, from a to b, edge after edge: P x z way id less the piece's
+      before; P x v length (dm); P x v class
+  outline, edge after edge, between a and b and without them: V x z lon,
+      V x z lat, each less the vertex before, a's position first
 
 Stations go in a file of their own (station_file), so the app finds a
 station by name before it loads the graph around it:
 
   "RLTS", u32 version, u32 stations S
-  stations, sorted by id: u8-prefixed id, u16-prefixed name, u8-prefixed
-            kind, i32 lon, i32 lat (1e-7 degrees), u16 count, i64 node ids
-            of its stop positions, u32-prefixed services as the tiles'
-            `routes` JSON; every station a train stops at (TRAIN_STATIONS),
-            with or without stop positions on track
+  stations, sorted by id: u8-prefixed id, u16-prefixed name, u8 count of
+            other names, each a u8-prefixed key ("en" for name:en, "int",
+            "alt", "official") and a u16-prefixed name, u8-prefixed kind,
+            i32 lon, i32 lat (1e-7 degrees), u16 count, i64 node ids of its
+            stop positions, u32-prefixed services as the tiles' `routes`
+            JSON; every station a train stops at (TRAIN_STATIONS), with or
+            without stop positions on track
 
 also one zstd frame. Names, positions and services are the map's stations
 (stations.features); only the stop positions come from the graph.
@@ -58,9 +80,16 @@ from array import array
 import classify as C
 import routes
 import stations as ST
-from geometry import K
+from geometry import K, dp_keep
 
 HEADING_M = 20.0
+# A station without stop positions starts from track this close.
+HALT_TRACK_M = 300.0
+# How far an edge's outline may stray from the track.
+OUTLINE_M = 5.0
+# Routes whose ways stay in the graph whatever their kind, for a trip
+# steered onto them.
+TRAIN_ROUTES = ("train", "light_rail")
 
 # No track left on the ground, or none yet.
 NO_TRACK = ("razed", "proposed", "abandoned")
@@ -127,14 +156,19 @@ def bearing(lon1, lat1, lon2, lat2):
 
 def _heading_out(pts):
     """Heading leaving pts[0] along pts, over HEADING_M where the edge is that
-    long."""
+    long, to the file's 1/65536 of a turn."""
     lon0, lat0 = pts[0]
     d = 0.0
     for i in range(1, len(pts)):
         d += metres(*pts[i - 1], *pts[i])
         if d >= HEADING_M:
             break
-    return bearing(lon0, lat0, *pts[i])
+    return round(bearing(lon0, lat0, *pts[i]) / 360.0 * 65536) % 65536 * 360.0 / 65536
+
+
+def _length(pts):
+    """Metres along pts, to the file's decimetre."""
+    return round(sum(metres(*pts[k], *pts[k + 1]) for k in range(len(pts) - 1)), 1)
 
 
 class Graph:
@@ -159,6 +193,7 @@ class Graph:
         self.version = {}           # way id -> OSM version
         self.way_nodes = {}         # way id -> array of its node ids
         self.truncated = set()      # ways cut short at a node without a location
+        self.pieces = {}            # edge -> [(way, length, class)] where it covers several ways
 
     def _junction(self, nid, lon, lat):
         j = self.node_index.get(nid)
@@ -183,7 +218,7 @@ class Graph:
         self.i1.append(i1)
         self.a.append(a)
         self.b.append(b)
-        self.length.append(sum(metres(*pts[k], *pts[k + 1]) for k in range(len(pts) - 1)))
+        self.length.append(_length(pts))
         kind, lifecycle, usage, service, maxspeed = cls
         self.kind.append(kind)
         self.lifecycle.append(lifecycle)
@@ -194,6 +229,47 @@ class Graph:
         self.head_out += [_heading_out(pts), _heading_out(pts[::-1])]
         self.out[a].append(2 * e)
         self.out[b].append(2 * e + 1)
+
+    def add_chain(self, start, end, pieces, outline, heads):
+        """An edge of the file (encode): its ends (node id, lon, lat), pieces
+        [(way, length, class)], outline [(lon, lat)] from end to end and
+        headings leaving each end."""
+        e = len(self.way)
+        a, b = self._junction(*start), self._junction(*end)
+        kind, lifecycle, usage, service, maxspeed = pieces[0][2]
+        self.way.append(pieces[0][0])
+        self.i0.append(0)
+        self.i1.append(0)
+        self.a.append(a)
+        self.b.append(b)
+        self.length.append(sum(p[1] for p in pieces))
+        self.kind.append(kind)
+        self.lifecycle.append(lifecycle)
+        self.usage.append(usage)
+        self.service.append(service)
+        self.maxspeed.append(maxspeed)
+        self.coords.append(list(outline))
+        self.head_out += list(heads)
+        self.out[a].append(2 * e)
+        self.out[b].append(2 * e + 1)
+        if len(pieces) > 1:
+            self.pieces[e] = pieces
+
+    def split(self, e, k):
+        """Cuts edge e at its k-th vertex into e and a new edge; returns the
+        junction there."""
+        pts, wid, i0, i1, b = self.coords[e], self.way[e], self.i0[e], self.i1[e], self.b[e]
+        nid = self.way_nodes[wid][i0 + k]
+        j = self._junction(nid, *pts[k])
+        self.out[b].remove(2 * e + 1)
+        self.b[e], self.i1[e], self.coords[e] = j, i0 + k, pts[:k + 1]
+        self.length[e] = _length(pts[:k + 1])
+        self.head_out[2 * e:2 * e + 2] = [_heading_out(pts[:k + 1]), _heading_out(pts[k::-1])]
+        self.out[j].append(2 * e + 1)
+        cls = (self.kind[e], self.lifecycle[e], self.usage[e], self.service[e], self.maxspeed[e])
+        rest = [(nid, *pts[k])] + [(0, *p) for p in pts[k + 1:-1]] + [(self.node_id[b], *pts[-1])]
+        self.add_edge(wid, cls, rest, i0 + k, i1)
+        return j
 
     @property
     def edge_count(self):
@@ -223,18 +299,15 @@ def edge_class(props):
 
 def build(lines):
     """The graph of an extract's OPL lines (read_opl)."""
-    ways, stops = [], {}
+    import search as S
+    found, stops = [], {}
     g = Graph()
     for line in lines:
         t = line[:1]
         if t == "w":
             wid, version, tags, nodes, truncated = _way(line)
             if len(nodes) >= 2 and C.keep(tags) and C.lifecycle(tags) not in NO_TRACK:
-                ways.append((wid, edge_class(tags), nodes))
-                g.version[wid] = version
-                g.way_nodes[wid] = array("q", (nid for nid, _, _ in nodes))
-                if truncated:
-                    g.truncated.add(wid)
+                found.append((wid, version, edge_class(tags), nodes, truncated))
         elif t == "n" and "stop" in line:
             nid, tags = _node(line)
             if is_stop(tags):
@@ -244,6 +317,15 @@ def build(lines):
             if r is not None:
                 g.relations.append(r)
 
+    on_routes = {int(w[1:]) for r in g.relations if r["tags"].get("route") in TRAIN_ROUTES for w in r["ways"]}
+    ways = []
+    for wid, version, cls, nodes, truncated in found:
+        if (cls[0] in S.TRAIN_KINDS and cls[1] in S.LIFECYCLE) or wid in on_routes:
+            ways.append((wid, cls, nodes))
+            g.version[wid] = version
+            g.way_nodes[wid] = array("q", (nid for nid, _, _ in nodes))
+            if truncated:
+                g.truncated.add(wid)
     uses = {}
     for _, _, nodes in ways:
         for nid, _, _ in nodes:
@@ -276,7 +358,10 @@ def station_stops(g, pbf):
     without a station goes to the nearest station within stations.NEAR_M of
     its stops, and a stop position no stop area holds to the nearest station
     within NEAR_M that serves its track, as stations.calls places services.
-    The app keeps the junctions whose track suits the trip."""
+    A train station left without one takes the nearest track node within
+    HALT_TRACK_M, cut into a junction and marked a stop, as a halt mapped
+    as one node beside the line needs. The app keeps the junctions whose
+    track suits the trip."""
     stations, _ = ST.read_points(pbf)
     grid = ST._Grid(stations.values())
     out = {}
@@ -305,37 +390,65 @@ def station_stops(g, pbf):
             if s["kind"] in accepts:
                 out.setdefault(s["id"], set()).add(j)
                 break
+    bare = [s for s in stations.values() if s["kind"] in TRAIN_STATIONS and s["id"] not in out]
+    for sid, j in _track_beside(g, bare).items():
+        g.stop[j] = True
+        out[sid] = {j}
     return {sid: sorted(js) for sid, js in out.items()}
 
 
-VERSION = 4
-STATIONS_VERSION = 1
-SIDECAR_VERSION = 3
+def _track_beside(g, stations):
+    """{station id: junction} at the track node nearest each station within
+    HALT_TRACK_M, edges cut where the node is inside one."""
+    cell = 0.01
+    grid = {}
+    for e, pts in enumerate(g.coords):
+        for k, (lon, lat) in enumerate(pts):
+            grid.setdefault((int(math.floor(lon / cell)), int(math.floor(lat / cell))), []).append((e, k))
+    picked = {}
+    for s in stations:
+        cx, cy = int(math.floor(s["lon"] / cell)), int(math.floor(s["lat"] / cell))
+        reach = int(HALT_TRACK_M / (cell * K * max(math.cos(math.radians(s["lat"])), 0.1))) + 1
+        best = None
+        for dx in range(-reach, reach + 1):
+            for dy in range(-reach, reach + 1):
+                for e, k in grid.get((cx + dx, cy + dy), ()):
+                    d = metres(s["lon"], s["lat"], *g.coords[e][k])
+                    if d <= HALT_TRACK_M and (best is None or d < best[0]):
+                        best = (d, e, k)
+        if best is not None:
+            picked[s["id"]] = best[1:]
+    # Cut each edge from its far end back, so the nearer vertices keep their index.
+    junction = {}
+    for e, k in sorted(set(picked.values()), key=lambda ek: (ek[0], -ek[1])):
+        last = len(g.coords[e]) - 1
+        junction[e, k] = g.a[e] if k == 0 else g.b[e] if k == last else g.split(e, k)
+    return {sid: junction[ek] for sid, ek in picked.items()}
+
+
+VERSION = 5
+STATIONS_VERSION = 2
+SIDECAR_VERSION = 4
 
 # Station kinds the app finds trips between.
 TRAIN_STATIONS = ("train", "light_rail")
 
 
-def _vocab(values):
-    """Tag values by frequency, None first. Past 255 the rarest share
-    "other": a free-form tag like service can take any value."""
-    counts = {}
+def _varint(b, v):
+    while v >= 0x80:
+        b.append(v & 0x7F | 0x80)
+        v >>= 7
+    b.append(v)
+
+
+def _zigzag(b, v):
+    _varint(b, v * 2 if v >= 0 else -v * 2 - 1)
+
+
+def _column(values, put=_varint):
+    b = bytearray()
     for v in values:
-        if v is not None:
-            counts[v] = counts.get(v, 0) + 1
-    words = [None] + sorted(counts, key=lambda v: -counts[v])
-    if len(words) > 255:
-        words = words[:254] + ["other"]
-    code = {v: i for i, v in enumerate(words)}
-    other = len(words) - 1
-    return words, lambda v: code.get(v, other)
-
-
-def _strings(words):
-    b = bytearray([len(words)])
-    for w in words:
-        u = (w or "").encode()
-        b += bytes([len(u)]) + u
+        put(b, v)
     return b
 
 
@@ -357,42 +470,141 @@ def write(raw, path):
         f.write(zstd.compress(raw, level=19))
 
 
+def chains(g):
+    """The file's edges: [(a, b, [directed edges of g from a to b])], merged
+    through every junction a train passes without a choice. Such a junction
+    has two edges, no stop, a turn the train may take between them, and
+    both edges inside its chunk. Each runs from its lower node id to its
+    higher, so an edge in two chunks reads the same in both."""
+    import search as S
+    tile = [tile_of(lon, lat) for lon, lat in zip(g.lon, g.lat)]
+
+    def through(j):
+        if len(g.out[j]) != 2 or g.stop[j]:
+            return False
+        d1, d2 = g.out[j]
+        e1, e2 = d1 >> 1, d2 >> 1
+        if e1 == e2 or any(tile[g.a[e]] != tile[g.b[e]] for e in (e1, e2)):
+            return False
+        return S.turn(g.head_in(d1 ^ 1), g.head_out[d2]) <= S.MAX_TURN
+
+    kept = [not through(j) for j in range(len(g.node_id))]
+    used = [False] * g.edge_count
+    out = []
+
+    def walk(j):
+        for d in g.out[j]:
+            if used[d >> 1]:
+                continue
+            run = [d]
+            used[d >> 1] = True
+            v = g.head(d)
+            while not kept[v]:
+                d = next(x for x in g.out[v] if x != run[-1] ^ 1)
+                run.append(d)
+                used[d >> 1] = True
+                v = g.head(d)
+            if g.node_id[v] < g.node_id[j]:
+                out.append((v, j, [x ^ 1 for x in reversed(run)]))
+            else:
+                out.append((j, v, run))
+
+    for j in range(len(g.node_id)):
+        if kept[j]:
+            walk(j)
+    # Track in a closed ring with no junction of its own.
+    for e in range(g.edge_count):
+        if not used[e]:
+            kept[g.a[e]] = True
+            walk(g.a[e])
+    return out
+
+
+def _outline(g, run):
+    pts = []
+    for d in run:
+        p = g.coords[d >> 1]
+        p = p[::-1] if d & 1 else p
+        pts.extend(p if not pts else p[1:])
+    c = math.cos(math.radians(pts[0][1]))
+    keep = dp_keep([(lon * K * c, lat * K) for lon, lat in pts], OUTLINE_M)
+    return [p for p, k in zip(pts[1:-1], keep[1:-1]) if k]
+
+
 def encode(g):
     """The uncompressed graph file."""
-    order = sorted(range(len(g.node_id)), key=g.node_id.__getitem__)
-    new = [0] * len(order)
-    for i, j in enumerate(order):
-        new[j] = i
-    E = g.edge_count
-    vocabs = [_vocab(g.kind), _vocab(g.lifecycle), _vocab(g.usage), _vocab(g.service)]
-    starts, vlon, vlat = [0], [], []
-    for pts in g.coords:
-        for lon, lat in pts[1:-1]:
-            vlon.append(_e7(lon))
-            vlat.append(_e7(lat))
-        starts.append(len(vlon))
-    b = bytearray(b"RLTG")
-    b += struct.pack("<4I", VERSION, len(order), E, len(vlon))
-    for words, _ in vocabs:
-        b += _strings(words)
-    b += _arr("q", (g.node_id[j] for j in order))
-    b += _arr("i", (_e7(g.lon[j]) for j in order))
-    b += _arr("i", (_e7(g.lat[j]) for j in order))
-    b += _arr("B", (1 if g.stop[j] else 0 for j in order))
-    b += _arr("q", g.way)
-    b += _arr("i", (new[j] for j in g.a))
-    b += _arr("i", (new[j] for j in g.b))
-    b += _arr("i", g.i0)
-    b += _arr("i", g.i1)
-    b += _arr("f", g.length)
-    for values, (_, code) in zip((g.kind, g.lifecycle, g.usage, g.service), vocabs):
-        b += _arr("B", (code(v) for v in values))
-    b += _arr("H", (min(v or 0, 65535) for v in g.maxspeed))
-    b += _arr("f", g.head_out[0::2])
-    b += _arr("f", g.head_out[1::2])
-    b += _arr("i", starts)
-    b += _arr("i", vlon)
-    b += _arr("i", vlat)
+    edges = chains(g)
+    used = sorted({j for a, b, _ in edges for j in (a, b)}, key=g.node_id.__getitem__)
+    new = {j: i for i, j in enumerate(used)}
+    words = [[""], [""], [""], [""]]
+    word_code = [{"": 0}, {"": 0}, {"": 0}, {"": 0}]
+    classes, class_code = [], {}
+
+    def class_of(e):
+        key = (g.kind[e], g.lifecycle[e], g.usage[e], g.service[e], g.maxspeed[e] or 0)
+        c = class_code.get(key)
+        if c is None:
+            codes = []
+            for m, v in enumerate(key[:4]):
+                v = v or ""
+                if v not in word_code[m]:
+                    word_code[m][v] = len(words[m])
+                    words[m].append(v)
+                codes.append(word_code[m][v])
+            c = class_code[key] = len(classes)
+            classes.append(codes + [min(key[4], 65535)])
+        return c
+
+    rows = []
+    for a, b, run in edges:
+        pieces = []
+        for d in run:
+            e = d >> 1
+            piece = [g.way[e], round(g.length[e] * 10), class_of(e)]
+            if pieces and pieces[-1][0] == piece[0] and pieces[-1][2] == piece[2]:
+                pieces[-1][1] += piece[1]
+            else:
+                pieces.append(piece)
+        rows.append((pieces[0][0], new[a], new[b], g.head_out[run[0]], g.head_out[run[-1] ^ 1],
+                     pieces, _outline(g, run)))
+    rows.sort(key=lambda r: (r[1], r[2], r[0]))
+
+    b = bytearray(b"RLTG") + struct.pack("<I", VERSION)
+    for v in (len(used), len(rows), sum(len(r[5]) for r in rows), sum(len(r[6]) for r in rows), len(classes)):
+        _varint(b, v)
+    for ws in words:
+        _varint(b, len(ws))
+        for w in ws:
+            u = w.encode()
+            _varint(b, len(u))
+            b += u
+    for c in classes:
+        for v in c:
+            _varint(b, v)
+    b += _column(n - m for m, n in zip([0] + [g.node_id[j] for j in used], (g.node_id[j] for j in used)))
+    for coord in (g.lon, g.lat):
+        e7 = [_e7(coord[j]) for j in used]
+        b += _column((n - m for m, n in zip([0] + e7, e7)), _zigzag)
+    b += bytes(1 if g.stop[j] else 0 for j in used)
+    b += _column(n - m for m, n in zip([0] + [r[1] for r in rows], (r[1] for r in rows)))
+    b += _column((r[2] - r[1] for r in rows), _zigzag)
+    b += _arr("H", (round(r[3] / 360.0 * 65536) % 65536 for r in rows))
+    b += _arr("H", (round(r[4] / 360.0 * 65536) % 65536 for r in rows))
+    b += _column(len(r[5]) for r in rows)
+    b += _column(len(r[6]) for r in rows)
+    ways = [p[0] for r in rows for p in r[5]]
+    b += _column((n - m for m, n in zip([0] + ways, ways)), _zigzag)
+    b += _column(p[1] for r in rows for p in r[5])
+    b += _column(p[2] for r in rows for p in r[5])
+    lons, lats = [], []
+    for r in rows:
+        x, y = _e7(g.lon[used[r[1]]]), _e7(g.lat[used[r[1]]])
+        for lon, lat in r[6]:
+            lons.append(_e7(lon) - x)
+            lats.append(_e7(lat) - y)
+            x, y = _e7(lon), _e7(lat)
+    b += _column(lons, _zigzag)
+    b += _column(lats, _zigzag)
     return bytes(b)
 
 
@@ -412,13 +624,17 @@ def station_file(features, stops):
         ids = stops.get(sid, [])[:65535]
         routes_json = (p.get("routes") or "").encode()
         b += bytes([len(sid)]) + sid.encode() + struct.pack("<H", len(name)) + name
+        others = [(k.encode()[:255], v.encode()[:65535]) for k, v in p.get("names", [])][:255]
+        b.append(len(others))
+        for k, v in others:
+            b += bytes([len(k)]) + k + struct.pack("<H", len(v)) + v
         b += bytes([len(kind)]) + kind + struct.pack("<iiH", _e7(lon), _e7(lat), len(ids)) + _arr("q", ids)
         b += struct.pack("<I", len(routes_json)) + routes_json
     return bytes(b)
 
 
-# Chunks are tiles at this zoom: about 200 km across in central Europe.
-CHUNK_ZOOM = 7
+# Chunks are tiles at this zoom: about 100 km across in central Europe.
+CHUNK_ZOOM = 8
 
 
 def tile_of(lon, lat):
@@ -460,6 +676,8 @@ def sidecar(g, table, path):
 
     line(["sidecar", SIDECAR_VERSION])
     for wid, es in pieces.items():
+        # A piece cut off at a halt comes last among the edges.
+        es.sort(key=g.i0.__getitem__)
         lons, lats, cuts = [], [], []
         for e in es:
             pts = g.coords[e]

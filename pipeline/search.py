@@ -42,43 +42,66 @@ SERVICE_SPEED = 40
 OTHER_SPEED = 60
 
 
-def speed(g, e):
-    v = g.maxspeed[e]
+def pieces(g, e):
+    """[(way, length, class)] of the ways edge e covers."""
+    return getattr(g, "pieces", {}).get(e) or [(g.way[e], g.length[e], (g.kind[e], g.lifecycle[e], g.usage[e],
+                                                          g.service[e], g.maxspeed[e]))]
+
+
+def speed(cls):
+    _, _, usage, service, v = cls
     if v is None:
-        v = SERVICE_SPEED if g.service[e] else DEFAULT_SPEED.get(g.usage[e], OTHER_SPEED)
+        v = SERVICE_SPEED if service else DEFAULT_SPEED.get(usage, OTHER_SPEED)
     return min(max(v, 10), V_MAX)
 
 
-def train_factor(g, speed_weight=SPEED_WEIGHT):
+def _per_edge(g, piece_factor):
+    """An edge's factor from its pieces': their mean by length, so the edge
+    costs what its pieces do one after another; None if any is."""
     def f(e):
-        k = TRAIN_KINDS.get(g.kind[e])
-        lc = LIFECYCLE.get(g.lifecycle[e])
-        if k is None or lc is None:
-            return None
-        u = USAGE.get(g.usage[e], 1.0)
-        s = SERVICE.get(g.service[e], 2.0) if g.service[e] else 1.0
-        return (V_MAX / speed(g, e)) ** speed_weight * k * lc * u * s
+        ps = pieces(g, e)
+        if len(ps) == 1:
+            return piece_factor(*ps[0][::2])
+        total = cost = 0.0
+        for way, length, cls in ps:
+            pf = piece_factor(way, cls)
+            if pf is None:
+                return None
+            total += length
+            cost += length * pf
+        return cost / total if total else piece_factor(*ps[0][::2])
     return f
+
+
+def _train(cls, speed_weight):
+    kind, lifecycle, usage, service, _ = cls
+    k = TRAIN_KINDS.get(kind)
+    lc = LIFECYCLE.get(lifecycle)
+    if k is None or lc is None:
+        return None
+    u = USAGE.get(usage, 1.0)
+    s = SERVICE.get(service, 2.0) if service else 1.0
+    return (V_MAX / speed(cls)) ** speed_weight * k * lc * u * s
+
+
+def train_factor(g, speed_weight=SPEED_WEIGHT):
+    return _per_edge(g, lambda way, cls: _train(cls, speed_weight))
 
 
 def service_factor(g, ways):
     """train_factor steered onto a service's member ways. A member way the
     train factor rules out, such as tram track a train route runs over,
     counts as track in service."""
-    base = train_factor(g)
-
-    def f(e):
-        b = base(e)
-        if g.way[e] in ways:
-            return b if b is not None else (V_MAX / speed(g, e)) ** SPEED_WEIGHT
+    def f(way, cls):
+        b = _train(cls, SPEED_WEIGHT)
+        if way in ways:
+            return b if b is not None else (V_MAX / speed(cls)) ** SPEED_WEIGHT
         return None if b is None else b * OFF_SERVICE
-    return f
+    return _per_edge(g, f)
 
 
 def only_ways(g, ways):
-    def f(e):
-        return 1.0 if g.way[e] in ways else None
-    return f
+    return _per_edge(g, lambda way, cls: 1.0 if way in ways else None)
 
 
 def turn(h_in, h_out):
