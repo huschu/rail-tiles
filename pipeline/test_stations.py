@@ -174,6 +174,9 @@ class Towns(unittest.TestCase):
         self.assertTrue(S.names_town(["Bruxelles-Midi - Brussel-Zuid"], ["Brussels", "Bruxelles - Brussel"]))
         self.assertTrue(S.names_town(["京都"], ["京都市", "Kyoto"]))
         self.assertFalse(S.names_town(["Hauptbahnhof"], ["Berlin"]))
+        # A town of short words only counts whole.
+        self.assertTrue(S.names_town(["Ulm Hbf"], ["Ulm"]))
+        self.assertFalse(S.names_town(["Ulmen"], ["Ulm"]))
         # "am" and "Main" alone say nothing.
         self.assertFalse(S.names_town(["Mainz Hbf"], ["Offenbach am Main"]))
 

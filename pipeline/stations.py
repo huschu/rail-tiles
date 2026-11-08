@@ -233,13 +233,15 @@ _WORD = re.compile(r"\w+")
 
 def names_town(station_names, town_names):
     """Whether a station's names already say its town: a town word of four
-    or more letters among a station name's words, ignoring case and accents;
-    for scripts without spaces, either name holding the other."""
-    stations = [_fold(n) for n in station_names if n]
+    or more letters among a station name's words, or every word of a town
+    without such words, as Ulm; ignoring case and accents; for scripts
+    without spaces, either name holding the other."""
+    stations = [(_fold(n), set(_WORD.findall(_fold(n)))) for n in station_names if n]
     for town in (_fold(n) for n in town_names if n):
-        words = [w for w in _WORD.findall(town) if len(w) >= 4]
-        for station in stations:
-            if any(w in _WORD.findall(station) for w in words):
+        words = _WORD.findall(town)
+        long = [w for w in words if len(w) >= 4]
+        for station, own in stations:
+            if (any(w in own for w in long) if long else words and all(w in own for w in words)):
                 return True
             if not town.isascii() and len(town) >= 2 and (town in station or station in town):
                 return True
