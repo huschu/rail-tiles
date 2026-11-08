@@ -139,5 +139,50 @@ class OtherNames(unittest.TestCase):
                          [["en", "Tokyo"], ["ja-Latn", "Tōkyō"], ["alt", "Tokio"], ["alt", "Tōkyō-eki"]])
 
 
+class Towns(unittest.TestCase):
+    @staticmethod
+    def place(pid, name, place, lon, lat, population=None, names=()):
+        return {"id": pid, "name": name, "names": [list(n) for n in names], "place": place,
+                "population": population, "lon": lon, "lat": lat}
+
+    @staticmethod
+    def station(sid, name, lon, lat, names=()):
+        return {"id": sid, "name": name, "names": [list(n) for n in names], "kind": "train",
+                "halt": False, "lon": lon, "lat": lat}
+
+    def test_a_named_town_wins_over_a_nearer_one_and_a_big_city_reaches_far(self):
+        berlin = self.place("n1", "Berlin", "city", 13.3889, 52.5170, 3_850_000)
+        falkensee = self.place("n2", "Falkensee", "town", 13.0928, 52.5600, 45_000)
+        dallgow = self.place("n3", "Dallgow-Döberitz", "village", 13.0500, 52.5300, 10_000)
+        stations = {s["id"]: s for s in [
+            self.station("n10", "Berlin-Spandau", 13.1975, 52.5345),
+            # Berlin's S-Bahn calls it plain Hauptbahnhof; 1.5 km from Berlin's node.
+            self.station("n11", "Hauptbahnhof", 13.3694, 52.5252),
+            self.station("n12", "Falkensee", 13.0930, 52.5620),
+            self.station("n13", "Dallgow-Döberitz Bahnhof Süd", 13.0520, 52.5250)]}
+        towns = S.assign_towns(stations, [berlin, falkensee, dallgow])
+        self.assertEqual({sid: t["name"] for sid, t in towns.items()},
+                         {"n10": "Berlin", "n11": "Berlin", "n12": "Falkensee", "n13": "Dallgow-Döberitz"})
+
+    def test_a_station_far_from_any_place_has_no_town(self):
+        stations = {"n10": self.station("n10", "Moor", 10.0, 54.0)}
+        self.assertEqual(S.assign_towns(stations, [self.place("n1", "Kiel", "city", 10.13, 54.32)]), {})
+
+    def test_names_town_ignores_case_accents_and_short_words_and_matches_scripts_without_spaces(self):
+        self.assertTrue(S.names_town(["Frankfurt (Main) Hbf"], ["Frankfurt am Main"]))
+        self.assertTrue(S.names_town(["Shin-Ōsaka"], ["Osaka", "大阪市"]))
+        self.assertTrue(S.names_town(["Bruxelles-Midi - Brussel-Zuid"], ["Brussels", "Bruxelles - Brussel"]))
+        self.assertTrue(S.names_town(["京都"], ["京都市", "Kyoto"]))
+        self.assertFalse(S.names_town(["Hauptbahnhof"], ["Berlin"]))
+        # "am" and "Main" alone say nothing.
+        self.assertFalse(S.names_town(["Mainz Hbf"], ["Offenbach am Main"]))
+
+    def test_population_reads_separators_and_skips_estimates_in_words(self):
+        self.assertEqual(S._population("3 850 809"), 3850809)
+        self.assertEqual(S._population("12,345"), 12345)
+        self.assertIsNone(S._population("ca. 500"))
+        self.assertIsNone(S._population(None))
+
+
 if __name__ == "__main__":
     unittest.main()

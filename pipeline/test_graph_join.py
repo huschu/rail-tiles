@@ -78,11 +78,21 @@ class Stations(unittest.TestCase):
                   "geometry": {"coordinates": [7.5895, 47.5474]}},
                  {"properties": {"osm_id": "n1", "kind": "tram", "name": "Bankverein"},
                   "geometry": {"coordinates": [7.59, 47.55]}}]
+        feats[0]["properties"]["town"] = {"id": "n9", "name": "Basel", "names": [["fr", "Bâle"]],
+                                          "place": "city", "population": 177000}
         raw = G.station_file(feats, {"n2": [10, 11], "n1": [12]})
         self.assertEqual(raw[:4], b"RLTS")
         self.assertEqual(struct.unpack_from("<2I", raw, 4), (G.STATIONS_VERSION, 1))
-        self.assertEqual(raw[13:15], b"n2")
-        pos = 15
+        self.assertEqual(raw[12:19], b"\x05\x00Basel")
+        self.assertEqual(raw[19:23], b"\x01\x02fr")
+        self.assertEqual(raw[23:25 + len("Bâle".encode())], struct.pack("<H", 5) + "Bâle".encode())
+        pos = 25 + len("Bâle".encode())
+        self.assertEqual(struct.unpack_from("<BI", raw, pos), (1, 177000))
+        pos += 5
+        self.assertEqual(struct.unpack_from("<I", raw, pos), (1,))
+        pos += 4
+        self.assertEqual(raw[pos + 1:pos + 3], b"n2")
+        pos += 3
         name_len, = struct.unpack_from("<H", raw, pos)
         pos += 2 + name_len
         self.assertEqual(raw[pos], 1)
@@ -98,7 +108,9 @@ class Stations(unittest.TestCase):
         pos += 8 * count
         routes_len, = struct.unpack_from("<I", raw, pos)
         self.assertEqual(raw[pos + 4:pos + 4 + routes_len], b'[["train"]]')
-        self.assertEqual(pos + 4 + routes_len, len(raw))
+        pos += 4 + routes_len
+        self.assertEqual(struct.unpack_from("<I", raw, pos), (0,))
+        self.assertEqual(pos + 4, len(raw))
 
 
 def opl_way(wid, nodes, version=1):

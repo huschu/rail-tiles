@@ -25,6 +25,7 @@ import os
 import re
 import subprocess
 import tempfile
+import unicodedata
 from collections import defaultdict
 
 import routes
@@ -169,6 +170,100 @@ def read_points(pbf):
     return _drop_area_duplicates(stations), stops
 
 
+# Places a station can belong to, and how far each kind reaches when it
+# has no population: a station 8 km from a village is not in it, but one
+# 8 km from a city's centre node may be.
+PLACES = {"city": 10_000.0, "town": 4_000.0, "village": 1_500.0}
+# Candidates considered around a station.
+TOWN_REACH_M = 40_000.0
+
+
+def read_places(pbf):
+    """The extract's cities, towns and villages: [{id, name, names, place,
+    population, lon, lat}], names as other_names gives them."""
+    with tempfile.TemporaryDirectory() as tmp:
+        sub = os.path.join(tmp, "places.osm.pbf")
+        out = os.path.join(tmp, "places.geojsonseq")
+        subprocess.run(["osmium", "tags-filter", pbf, "n/place=" + ",".join(PLACES), "-o", sub, "--overwrite"],
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["osmium", "export", sub, "-f", "geojsonseq", "--geometry-types=point",
+                        "--add-unique-id=type_id", "-o", out, "--overwrite"],
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        places = []
+        with open(out) as f:
+            for line in f:
+                line = line.strip().lstrip("\x1e")
+                if not line:
+                    continue
+                try:
+                    o = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                p = o.get("properties") or {}
+                name = (p.get("name") or "").strip()
+                if not name or p.get("place") not in PLACES:
+                    continue
+                lon, lat = (o.get("geometry") or {}).get("coordinates", [None, None])[:2]
+                if lon is None:
+                    continue
+                places.append({"id": o.get("id"), "name": name, "names": other_names(p), "place": p["place"],
+                               "population": _population(p.get("population")), "lon": lon, "lat": lat})
+    return places
+
+
+def _population(value):
+    """OSM population, as people; None when the tag is missing or not a count."""
+    digits = re.sub(r"[ ,.\u202f']", "", value or "")
+    return int(digits) if digits.isdigit() else None
+
+
+def _reach(place):
+    """How far from its node a place's stations lie, in metres."""
+    if place["population"]:
+        return max(1_000.0, 500.0 * place["population"] ** 0.25)
+    return PLACES[place["place"]]
+
+
+def _fold(text):
+    return "".join(c for c in unicodedata.normalize("NFKD", text.casefold()) if not unicodedata.combining(c))
+
+
+_WORD = re.compile(r"\w+")
+
+
+def names_town(station_names, town_names):
+    """Whether a station's names already say its town: a town word of four
+    or more letters among a station name's words, ignoring case and accents;
+    for scripts without spaces, either name holding the other."""
+    stations = [_fold(n) for n in station_names if n]
+    for town in (_fold(n) for n in town_names if n):
+        words = [w for w in _WORD.findall(town) if len(w) >= 4]
+        for station in stations:
+            if any(w in _WORD.findall(station) for w in words):
+                return True
+            if not town.isascii() and len(town) >= 2 and (town in station or station in town):
+                return True
+    return False
+
+
+def assign_towns(stations, places):
+    """{station id: place} for each station within three reaches of a
+    place. A place the station's name already holds wins, as Berlin does
+    for Berlin-Spandau though Falkensee's node is nearer; else the place
+    whose reach the station lies furthest inside."""
+    # Coarse cells: a 40 km reach in 1 km cells would visit thousands.
+    grid = _Grid(places, cell=0.2)
+    out = {}
+    for sid, s in stations.items():
+        near = [(p, d) for p, d in grid.near(s["lon"], s["lat"], TOWN_REACH_M) if d <= 3 * _reach(p)]
+        if not near:
+            continue
+        own = [s["name"] or ""] + [n for _, n in s.get("names", [])]
+        named = [(p, d) for p, d in near if names_town(own, [p["name"]] + [n for _, n in p["names"]])]
+        out[sid] = min(named or near, key=lambda pd: pd[1] / _reach(pd[0]))[0]
+    return out
+
+
 def _drop_area_duplicates(stations):
     """An area mapped around a station node it duplicates is dropped; the
     node is the feature routes and stop areas name. A nearby node of another
@@ -190,10 +285,12 @@ def _drop_area_duplicates(stations):
 
 
 class _Grid:
-    """Stations bucketed by ~1 km cells for radius queries."""
+    """Stations bucketed by ~1 km cells for radius queries; `cell` in degrees."""
     CELL = 0.01
 
-    def __init__(self, stations):
+    def __init__(self, stations, cell=None):
+        if cell:
+            self.CELL = cell
         self.cells = defaultdict(list)
         for s in stations:
             self.cells[self._key(s["lon"], s["lat"])].append(s)
@@ -324,6 +421,8 @@ def merge(feature_lists):
             m["tippecanoe"]["minzoom"] = min(m["tippecanoe"]["minzoom"], f["tippecanoe"]["minzoom"])
             if not m["properties"].get("name") and f["properties"].get("name"):
                 m["properties"]["name"] = f["properties"]["name"]
+            if not m["properties"].get("town") and f["properties"].get("town"):
+                m["properties"]["town"] = f["properties"]["town"]
             names = m["properties"].get("names", []) + [n for n in f["properties"].get("names", [])
                                                          if n not in m["properties"].get("names", [])]
             if names:
@@ -360,6 +459,7 @@ def _natural(s):
 def features(pbf, opl_lines):
     """GeoJSON point features, one per station, each with its own min zoom."""
     stations, stops = read_points(pbf)
+    towns = assign_towns(stations, read_places(pbf))
     relations = [r for r in (routes.parse_relation(l) for l in opl_lines) if r is not None]
     rel_by_id = {r["rid"]: r for r in relations}
     served = calls(relations, stations, stops)
@@ -373,6 +473,9 @@ def features(pbf, opl_lines):
             props["names"] = s["names"]
         if s["halt"]:
             props["halt"] = True
+        town = towns.get(sid)
+        if town:
+            props["town"] = {k: town[k] for k in ("id", "name", "names", "place", "population") if town[k]}
         if entries:
             props["routes"] = json.dumps(entries, ensure_ascii=False, separators=(",", ":"))
         if s["kind"] == "train" and not s["halt"]:

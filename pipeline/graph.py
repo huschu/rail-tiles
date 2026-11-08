@@ -55,14 +55,18 @@ One zstd frame of columns; v is an unsigned LEB128 varint, z a zigzag one:
 Stations go in a file of their own (station_file), so the app finds a
 station by name before it loads the graph around it:
 
-  "RLTS", u32 version, u32 stations S
+  "RLTS", u32 version, u32 towns T
+  towns, in order of first use: u16-prefixed name, u8 count of other names
+            as a station's, u8 kind (PLACE_RANK), u32 population (0 unknown)
+  u32 stations S
   stations, sorted by id: u8-prefixed id, u16-prefixed name, u8 count of
             other names, each a u8-prefixed key ("en" for name:en, "int",
             "alt", "official") and a u16-prefixed name, u8-prefixed kind,
             i32 lon, i32 lat (1e-7 degrees), u16 count, i64 node ids of its
             stop positions, u32-prefixed services as the tiles' `routes`
-            JSON; every station a train stops at (TRAIN_STATIONS), with or
-            without stop positions on track
+            JSON, u32 town index (0xFFFFFFFF for none); every station a
+            train stops at (TRAIN_STATIONS), with or without stop positions
+            on track
 
 also one zstd frame. Names, positions and services are the map's stations
 (stations.features); only the stop positions come from the graph.
@@ -431,7 +435,10 @@ def _track_beside(g, stations):
 
 
 VERSION = 5
-STATIONS_VERSION = 2
+STATIONS_VERSION = 3
+
+# A town's kind in the station file; 0 for none.
+PLACE_RANK = {"city": 1, "town": 2, "village": 3}
 SIDECAR_VERSION = 4
 
 # Station kinds the app finds trips between.
@@ -617,8 +624,24 @@ def station_file(features, stops):
     {station id: [stop node ids]}."""
     listed = sorted((f for f in features if f["properties"]["kind"] in TRAIN_STATIONS),
                     key=lambda f: f["properties"]["osm_id"])
+    towns, town_index = bytearray(), {}
+    for f in listed:
+        t = f["properties"].get("town")
+        if not t:
+            continue
+        key = t.get("id") or (t["name"], json.dumps(t.get("names", [])))
+        if key in town_index:
+            continue
+        town_index[key] = len(town_index)
+        tname = t["name"].encode()[:65535]
+        towns += struct.pack("<H", len(tname)) + tname
+        tothers = [(k.encode()[:255], v.encode()[:65535]) for k, v in t.get("names", [])][:255]
+        towns.append(len(tothers))
+        for k, v in tothers:
+            towns += bytes([len(k)]) + k + struct.pack("<H", len(v)) + v
+        towns += struct.pack("<BI", PLACE_RANK.get(t.get("place"), 0), min(t.get("population") or 0, 0xFFFFFFFF))
     b = bytearray(b"RLTS")
-    b += struct.pack("<2I", STATIONS_VERSION, len(listed))
+    b += struct.pack("<2I", STATIONS_VERSION, len(town_index)) + towns + struct.pack("<I", len(listed))
     for f in listed:
         p = f["properties"]
         sid = p["osm_id"]
@@ -634,6 +657,9 @@ def station_file(features, stops):
             b += bytes([len(k)]) + k + struct.pack("<H", len(v)) + v
         b += bytes([len(kind)]) + kind + struct.pack("<iiH", _e7(lon), _e7(lat), len(ids)) + _arr("q", ids)
         b += struct.pack("<I", len(routes_json)) + routes_json
+        t = p.get("town")
+        b += struct.pack("<I", town_index[t.get("id") or (t["name"], json.dumps(t.get("names", [])))]
+                         if t else 0xFFFFFFFF)
     return bytes(b)
 
 

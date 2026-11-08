@@ -71,7 +71,8 @@ echo "[$NAME] filtering to railway ways and route relations..."
 # on (pipeline/routes.py): services and the lines (route=railway, tracks)
 # the app highlights. Stop areas tie a station to the stops routes name
 # (pipeline/stations.py). Train route masters group the night trains into
-# services (pipeline/night.py). -R keeps them
+# services (pipeline/night.py). Cities, towns and villages give each station
+# of the trip planner its town (stations.assign_towns). -R keeps them
 # without their members: only their tags and member way ids are read, and the
 # members would drag in platforms and stops. -R cannot apply to the ways, which
 # need their nodes, hence two passes merged into one extract.
@@ -79,7 +80,7 @@ WAYS="$OUT/$NAME-ways.osm.pbf"
 ROUTES="$OUT/$NAME-routes.osm.pbf"
 if nice -n 10 osmium tags-filter "$RAW" "${FILTER[@]}" -o "$WAYS" --overwrite \
    && nice -n 10 osmium tags-filter "$RAW" "r/route=train,subway,light_rail,tram,monorail,funicular,railway,tracks" \
-        r/public_transport=stop_area r/route_master=train -R -o "$ROUTES" --overwrite \
+        r/public_transport=stop_area r/route_master=train n/place=city,town,village -R -o "$ROUTES" --overwrite \
    && osmium merge "$WAYS" "$ROUTES" -o "$FILT" --overwrite; then
   echo "[$NAME] filtered -> $(du -h "$FILT" | cut -f1)"
   rm -f "$WAYS" "$ROUTES"
