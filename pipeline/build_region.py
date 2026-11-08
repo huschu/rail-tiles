@@ -288,8 +288,7 @@ def tile_stations(points, tmp, name):
     """The stations layer as its own tileset, for tile-join beside the rail
     layer. Gate 1 counts its points like the rail features."""
     gj = os.path.join(tmp, f"{name}.stations.geojsonseq")
-    # Other names and the town serve the trip planner's station file, not the map.
-    write_seq(gj, ({**f, "properties": {k: v for k, v in f["properties"].items() if k not in ("names", "town")}}
+    write_seq(gj, ({**f, "properties": {k: v for k, v in f["properties"].items() if k in stations.TILE_PROPERTIES}}
                    for f in points))
     part = os.path.join(tmp, f"{name}.stations.pmtiles")
     got = tippecanoe(gj, part, stations.STATION_MIN_ZOOM, stations.STATION_MAX_ZOOM, layer="stations")

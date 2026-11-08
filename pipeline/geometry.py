@@ -14,6 +14,11 @@ K = 111320.0  # metres per degree latitude, and per degree longitude at equator
 FINE_TOL_DEG = 2.0 / K  # well inside the collapse reach; keeps ~1/4 of OSM vertices
 
 
+def metres(lon1, lat1, lon2, lat2):
+    c = math.cos(math.radians((lat1 + lat2) / 2))
+    return math.hypot((lon2 - lon1) * K * c, (lat2 - lat1) * K)
+
+
 # ---------------------------------------------------------------- Douglas-Peucker
 def dp_keep(coords, tol):
     """Return the boolean keep-mask so a caller can subset a parallel payload

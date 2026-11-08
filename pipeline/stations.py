@@ -29,6 +29,7 @@ import unicodedata
 from collections import defaultdict
 
 import routes
+from geometry import metres
 
 SERVICES = ("train", "subway", "light_rail", "monorail", "funicular", "tram")
 MODES = ("train", "subway", "light_rail", "monorail", "funicular")
@@ -114,59 +115,60 @@ def other_names(tags):
     return out
 
 
-def read_points(pbf):
-    """Stations and stop positions of the filtered extract.
-
-    Returns ({"n<id>": station}, {"n<id>": (lon, lat)}). A station is
-    {id, name, names, kind, halt, lon, lat}, names as other_names gives
-    them."""
+def _export(pbf, filters, geometry_types):
+    """The extract's objects matching osmium tags-filter's filters, as GeoJSON
+    features with type_id ids."""
     with tempfile.TemporaryDirectory() as tmp:
-        sub = os.path.join(tmp, "stations.osm.pbf")
-        out = os.path.join(tmp, "stations.geojsonseq")
-        subprocess.run(
-            ["osmium", "tags-filter", pbf,
-             "n/railway=station,halt,stop,tram_stop", "n/public_transport=station,stop_position",
-             "w/railway=station", "w/public_transport=station",
-             "-o", sub, "--overwrite"],
-            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run(
-            ["osmium", "export", sub, "-f", "geojsonseq",
-             "--geometry-types=point,polygon", "--add-unique-id=type_id",
-             "-o", out, "--overwrite"],
-            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        stations, stops = {}, {}
+        sub = os.path.join(tmp, "sub.osm.pbf")
+        out = os.path.join(tmp, "sub.geojsonseq")
+        subprocess.run(["osmium", "tags-filter", pbf, *filters, "-o", sub, "--overwrite"],
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["osmium", "export", sub, "-f", "geojsonseq", "--geometry-types=" + geometry_types,
+                        "--add-unique-id=type_id", "-o", out, "--overwrite"],
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         with open(out) as f:
             for line in f:
                 line = line.strip().lstrip("\x1e")
                 if not line:
                     continue
                 try:
-                    o = json.loads(line)
+                    yield json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                oid = o.get("id") or ""
-                p = o.get("properties") or {}
-                g = o.get("geometry") or {}
-                if g.get("type") == "Point":
-                    lon, lat = g["coordinates"][:2]
-                elif g.get("type") in ("Polygon", "MultiPolygon"):
-                    ring = g["coordinates"][0] if g["type"] == "Polygon" else g["coordinates"][0][0]
-                    if not ring:
-                        continue
-                    lon, lat = _centroid(ring)
-                    # osmium names an area after the way it came from: a2N for
-                    # way N, a2N+1 for relation N.
-                    if oid.startswith("a"):
-                        n = int(oid[1:])
-                        oid = f"w{n // 2}" if n % 2 == 0 else f"r{n // 2}"
-                else:
-                    continue
-                kind = station_kind(p)
-                if kind is not None:
-                    stations[oid] = {"id": oid, "name": p.get("name"), "names": other_names(p), "kind": kind,
-                                     "halt": p.get("railway") == "halt", "lon": lon, "lat": lat}
-                elif oid.startswith("n"):
-                    stops[oid] = (lon, lat)
+
+
+def read_points(pbf):
+    """Stations and stop positions of the filtered extract.
+
+    Returns ({"n<id>": station}, {"n<id>": (lon, lat)}). A station is
+    {id, name, names, kind, halt, lon, lat}, names as other_names gives
+    them."""
+    stations, stops = {}, {}
+    for o in _export(pbf, ["n/railway=station,halt,stop,tram_stop", "n/public_transport=station,stop_position",
+                           "w/railway=station", "w/public_transport=station"], "point,polygon"):
+        oid = o.get("id") or ""
+        p = o.get("properties") or {}
+        g = o.get("geometry") or {}
+        if g.get("type") == "Point":
+            lon, lat = g["coordinates"][:2]
+        elif g.get("type") in ("Polygon", "MultiPolygon"):
+            ring = g["coordinates"][0] if g["type"] == "Polygon" else g["coordinates"][0][0]
+            if not ring:
+                continue
+            lon, lat = _centroid(ring)
+            # osmium names an area after the way it came from: a2N for
+            # way N, a2N+1 for relation N.
+            if oid.startswith("a"):
+                n = int(oid[1:])
+                oid = f"w{n // 2}" if n % 2 == 0 else f"r{n // 2}"
+        else:
+            continue
+        kind = station_kind(p)
+        if kind is not None:
+            stations[oid] = {"id": oid, "name": p.get("name"), "names": other_names(p), "kind": kind,
+                             "halt": p.get("railway") == "halt", "lon": lon, "lat": lat}
+        elif oid.startswith("n"):
+            stops[oid] = (lon, lat)
     return _drop_area_duplicates(stations), stops
 
 
@@ -176,38 +178,24 @@ def read_points(pbf):
 PLACES = {"city": 10_000.0, "town": 4_000.0, "village": 1_500.0}
 # Candidates considered around a station.
 TOWN_REACH_M = 40_000.0
+# The bands assign_towns groups places by, the last TOWN_REACH_M.
+TOWN_BANDS_M = (4_500.0, 12_000.0, TOWN_REACH_M)
 
 
 def read_places(pbf):
     """The extract's cities, towns and villages: [{id, name, names, place,
     population, lon, lat}], names as other_names gives them."""
-    with tempfile.TemporaryDirectory() as tmp:
-        sub = os.path.join(tmp, "places.osm.pbf")
-        out = os.path.join(tmp, "places.geojsonseq")
-        subprocess.run(["osmium", "tags-filter", pbf, "n/place=" + ",".join(PLACES), "-o", sub, "--overwrite"],
-                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run(["osmium", "export", sub, "-f", "geojsonseq", "--geometry-types=point",
-                        "--add-unique-id=type_id", "-o", out, "--overwrite"],
-                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        places = []
-        with open(out) as f:
-            for line in f:
-                line = line.strip().lstrip("\x1e")
-                if not line:
-                    continue
-                try:
-                    o = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                p = o.get("properties") or {}
-                name = (p.get("name") or "").strip()
-                if not name or p.get("place") not in PLACES:
-                    continue
-                lon, lat = (o.get("geometry") or {}).get("coordinates", [None, None])[:2]
-                if lon is None:
-                    continue
-                places.append({"id": o.get("id"), "name": name, "names": other_names(p), "place": p["place"],
-                               "population": _population(p.get("population")), "lon": lon, "lat": lat})
+    places = []
+    for o in _export(pbf, ["n/place=" + ",".join(PLACES)], "point"):
+        p = o.get("properties") or {}
+        name = (p.get("name") or "").strip()
+        if not name or p.get("place") not in PLACES:
+            continue
+        lon, lat = (o.get("geometry") or {}).get("coordinates", [None, None])[:2]
+        if lon is None:
+            continue
+        places.append({"id": o.get("id"), "name": name, "names": other_names(p), "place": p["place"],
+                       "population": _population(p.get("population")), "lon": lon, "lat": lat})
     return places
 
 
@@ -253,11 +241,17 @@ def assign_towns(stations, places):
     place. A place the station's name already holds wins, as Berlin does
     for Berlin-Spandau though Falkensee's node is nearer; else the place
     whose reach the station lies furthest inside."""
-    # Coarse cells: a 40 km reach in 1 km cells would visit thousands.
-    grid = _Grid(places, cell=0.2)
+    # One grid per band of reach, so a station asks villages only within a few
+    # km; cells about half the band, as a 40 km reach in 1 km cells would
+    # visit thousands.
+    bands = defaultdict(list)
+    for p in places:
+        bands[next(m for m in TOWN_BANDS_M if min(3 * _reach(p), TOWN_REACH_M) <= m)].append(p)
+    grids = [(m, _Grid(ps, cell=m / 200_000)) for m, ps in bands.items()]
     out = {}
     for sid, s in stations.items():
-        near = [(p, d) for p, d in grid.near(s["lon"], s["lat"], TOWN_REACH_M) if d <= 3 * _reach(p)]
+        near = sorted(((p, d) for m, grid in grids for p, d in grid.near(s["lon"], s["lat"], m)
+                       if d <= 3 * _reach(p)), key=lambda pd: pd[1])
         if not near:
             continue
         own = [s["name"] or ""] + [n for _, n in s.get("names", [])]
@@ -308,18 +302,11 @@ class _Grid:
         for dx in range(-reach, reach + 1):
             for dy in range(-reach, reach + 1):
                 for s in self.cells.get((cx + dx, cy + dy), ()):
-                    d = _metres(lon, lat, s["lon"], s["lat"])
+                    d = metres(lon, lat, s["lon"], s["lat"])
                     if d <= radius_m:
                         out.append((s, d))
         out.sort(key=lambda t: t[1])
         return out
-
-
-def _metres(lon0, lat0, lon1, lat1):
-    k = 111320.0
-    dx = (lon1 - lon0) * k * math.cos(math.radians((lat0 + lat1) / 2))
-    dy = (lat1 - lat0) * k
-    return math.hypot(dx, dy)
 
 
 def service_title(tags):
@@ -456,6 +443,11 @@ def _natural(s):
             num = ""
         out.append((1, 0, ch))
     return out
+
+
+# The properties the map's stations layer carries; the rest serve the trip
+# planner's station file.
+TILE_PROPERTIES = ("osm_id", "kind", "name", "halt", "routes")
 
 
 def features(pbf, opl_lines):

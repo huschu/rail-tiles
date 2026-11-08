@@ -44,8 +44,7 @@ OTHER_SPEED = 60
 
 def pieces(g, e):
     """[(way, length, class)] of the ways edge e covers."""
-    return getattr(g, "pieces", {}).get(e) or [(g.way[e], g.length[e], (g.kind[e], g.lifecycle[e], g.usage[e],
-                                                          g.service[e], g.maxspeed[e]))]
+    return g.pieces.get(e) or [(g.way[e], g.length[e], g.cls[e])]
 
 
 def speed(cls):

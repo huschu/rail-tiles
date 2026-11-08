@@ -87,7 +87,8 @@ from array import array
 import classify as C
 import routes
 import stations as ST
-from geometry import K, dp_keep
+from diff_tiles import _wv as _varint
+from geometry import K, dp_keep, metres
 
 HEADING_M = 20.0
 # A station without stop positions starts from track this close.
@@ -151,11 +152,6 @@ def is_stop(tags):
     return tags.get("railway") == "stop" or tags.get("public_transport") == "stop_position"
 
 
-def metres(lon1, lat1, lon2, lat2):
-    c = math.cos(math.radians((lat1 + lat2) / 2))
-    return math.hypot((lon2 - lon1) * K * c, (lat2 - lat1) * K)
-
-
 def bearing(lon1, lat1, lon2, lat2):
     c = math.cos(math.radians((lat1 + lat2) / 2))
     return math.degrees(math.atan2((lon2 - lon1) * c, lat2 - lat1)) % 360.0
@@ -191,7 +187,7 @@ class Graph:
         self.node_id, self.lon, self.lat = [], [], []
         self.stop = []
         self.way, self.i0, self.i1, self.a, self.b, self.length = [], [], [], [], [], []
-        self.kind, self.lifecycle, self.usage, self.service, self.maxspeed = [], [], [], [], []
+        self.cls = []               # edge -> (kind, lifecycle, usage, service, maxspeed)
         self.coords = []
         self.head_out = []
         self.out = []  # per node: directed edges leaving it
@@ -226,41 +222,11 @@ class Graph:
         self.a.append(a)
         self.b.append(b)
         self.length.append(_length(pts))
-        kind, lifecycle, usage, service, maxspeed = cls
-        self.kind.append(kind)
-        self.lifecycle.append(lifecycle)
-        self.usage.append(usage)
-        self.service.append(service)
-        self.maxspeed.append(maxspeed)
+        self.cls.append(tuple(cls))
         self.coords.append(pts)
         self.head_out += [_heading_out(pts), _heading_out(pts[::-1])]
         self.out[a].append(2 * e)
         self.out[b].append(2 * e + 1)
-
-    def add_chain(self, start, end, pieces, outline, heads):
-        """An edge of the file (encode): its ends (node id, lon, lat), pieces
-        [(way, length, class)], outline [(lon, lat)] from end to end and
-        headings leaving each end."""
-        e = len(self.way)
-        a, b = self._junction(*start), self._junction(*end)
-        kind, lifecycle, usage, service, maxspeed = pieces[0][2]
-        self.way.append(pieces[0][0])
-        self.i0.append(0)
-        self.i1.append(0)
-        self.a.append(a)
-        self.b.append(b)
-        self.length.append(sum(p[1] for p in pieces))
-        self.kind.append(kind)
-        self.lifecycle.append(lifecycle)
-        self.usage.append(usage)
-        self.service.append(service)
-        self.maxspeed.append(maxspeed)
-        self.coords.append(list(outline))
-        self.head_out += list(heads)
-        self.out[a].append(2 * e)
-        self.out[b].append(2 * e + 1)
-        if len(pieces) > 1:
-            self.pieces[e] = pieces
 
     def split(self, e, k):
         """Cuts edge e at its k-th vertex into e and a new edge; returns the
@@ -273,7 +239,7 @@ class Graph:
         self.length[e] = _length(pts[:k + 1])
         self.head_out[2 * e:2 * e + 2] = [_heading_out(pts[:k + 1]), _heading_out(pts[k::-1])]
         self.out[j].append(2 * e + 1)
-        cls = (self.kind[e], self.lifecycle[e], self.usage[e], self.service[e], self.maxspeed[e])
+        cls = self.cls[e]
         rest = [(nid, *pts[k])] + [(0, *p) for p in pts[k + 1:-1]] + [(self.node_id[b], *pts[-1])]
         self.add_edge(wid, cls, rest, i0 + k, i1)
         return j
@@ -392,7 +358,7 @@ def station_stops(g, pbf):
     for j, is_stop in enumerate(g.stop):
         if not is_stop or j in placed:
             continue
-        kinds = {g.kind[d >> 1] for d in g.out[j]}
+        kinds = {g.cls[d >> 1][0] for d in g.out[j]}
         accepts = set().union(*(ST._SERVES.get(_ROUTE_OF_KIND.get(k), set()) for k in kinds))
         for s, _ in grid.near(g.lon[j], g.lat[j], ST.NEAR_M):
             if s["kind"] in accepts:
@@ -443,13 +409,6 @@ SIDECAR_VERSION = 4
 
 # Station kinds the app finds trips between.
 TRAIN_STATIONS = ("train", "light_rail")
-
-
-def _varint(b, v):
-    while v >= 0x80:
-        b.append(v & 0x7F | 0x80)
-        v >>= 7
-    b.append(v)
 
 
 def _zigzag(b, v):
@@ -532,11 +491,7 @@ def chains(g):
 
 
 def _outline(g, run):
-    pts = []
-    for d in run:
-        p = g.coords[d >> 1]
-        p = p[::-1] if d & 1 else p
-        pts.extend(p if not pts else p[1:])
+    pts = g.path_coords(run)
     c = math.cos(math.radians(pts[0][1]))
     keep = dp_keep([(lon * K * c, lat * K) for lon, lat in pts], OUTLINE_M)
     return [p for p, k in zip(pts[1:-1], keep[1:-1]) if k]
@@ -552,7 +507,7 @@ def encode(g):
     classes, class_code = [], {}
 
     def class_of(e):
-        key = (g.kind[e], g.lifecycle[e], g.usage[e], g.service[e], g.maxspeed[e] or 0)
+        key = (*g.cls[e][:4], g.cls[e][4] or 0)
         c = class_code.get(key)
         if c is None:
             codes = []
@@ -592,19 +547,19 @@ def encode(g):
     for c in classes:
         for v in c:
             _varint(b, v)
-    b += _column(n - m for m, n in zip([0] + [g.node_id[j] for j in used], (g.node_id[j] for j in used)))
+    b += _column(deltas([g.node_id[j] for j in used]))
     for coord in (g.lon, g.lat):
         e7 = [_e7(coord[j]) for j in used]
-        b += _column((n - m for m, n in zip([0] + e7, e7)), _zigzag)
+        b += _column(deltas(e7), _zigzag)
     b += bytes(1 if g.stop[j] else 0 for j in used)
-    b += _column(n - m for m, n in zip([0] + [r[1] for r in rows], (r[1] for r in rows)))
+    b += _column(deltas([r[1] for r in rows]))
     b += _column((r[2] - r[1] for r in rows), _zigzag)
     b += _arr("H", (round(r[3] / 360.0 * 65536) % 65536 for r in rows))
     b += _arr("H", (round(r[4] / 360.0 * 65536) % 65536 for r in rows))
     b += _column(len(r[5]) for r in rows)
     b += _column(len(r[6]) for r in rows)
     ways = [p[0] for r in rows for p in r[5]]
-    b += _column((n - m for m, n in zip([0] + ways, ways)), _zigzag)
+    b += _column(deltas(ways), _zigzag)
     b += _column(p[1] for r in rows for p in r[5])
     b += _column(p[2] for r in rows for p in r[5])
     lons, lats = [], []
@@ -619,6 +574,17 @@ def encode(g):
     return bytes(b)
 
 
+def _town_key(t):
+    return t.get("id") or (t["name"], json.dumps(t.get("names", [])))
+
+
+def _put_names(b, names):
+    pairs = [(k.encode()[:255], v.encode()[:65535]) for k, v in names][:255]
+    b.append(len(pairs))
+    for k, v in pairs:
+        b += bytes([len(k)]) + k + struct.pack("<H", len(v)) + v
+
+
 def station_file(features, stops):
     """The uncompressed station file of the map's station features and
     {station id: [stop node ids]}."""
@@ -629,16 +595,13 @@ def station_file(features, stops):
         t = f["properties"].get("town")
         if not t:
             continue
-        key = t.get("id") or (t["name"], json.dumps(t.get("names", [])))
+        key = _town_key(t)
         if key in town_index:
             continue
         town_index[key] = len(town_index)
         tname = t["name"].encode()[:65535]
         towns += struct.pack("<H", len(tname)) + tname
-        tothers = [(k.encode()[:255], v.encode()[:65535]) for k, v in t.get("names", [])][:255]
-        towns.append(len(tothers))
-        for k, v in tothers:
-            towns += bytes([len(k)]) + k + struct.pack("<H", len(v)) + v
+        _put_names(towns, t.get("names", []))
         towns += struct.pack("<BI", PLACE_RANK.get(t.get("place"), 0), min(t.get("population") or 0, 0xFFFFFFFF))
     b = bytearray(b"RLTS")
     b += struct.pack("<2I", STATIONS_VERSION, len(town_index)) + towns + struct.pack("<I", len(listed))
@@ -651,15 +614,11 @@ def station_file(features, stops):
         ids = stops.get(sid, [])[:65535]
         routes_json = (p.get("routes") or "").encode()
         b += bytes([len(sid)]) + sid.encode() + struct.pack("<H", len(name)) + name
-        others = [(k.encode()[:255], v.encode()[:65535]) for k, v in p.get("names", [])][:255]
-        b.append(len(others))
-        for k, v in others:
-            b += bytes([len(k)]) + k + struct.pack("<H", len(v)) + v
+        _put_names(b, p.get("names", []))
         b += bytes([len(kind)]) + kind + struct.pack("<iiH", _e7(lon), _e7(lat), len(ids)) + _arr("q", ids)
         b += struct.pack("<I", len(routes_json)) + routes_json
         t = p.get("town")
-        b += struct.pack("<I", town_index[t.get("id") or (t["name"], json.dumps(t.get("names", [])))]
-                         if t else 0xFFFFFFFF)
+        b += struct.pack("<I", town_index[_town_key(t)] if t else 0xFFFFFFFF)
     return bytes(b)
 
 
@@ -722,7 +681,7 @@ def sidecar(g, table, path):
         if wid in g.truncated:
             cuts.pop()
         e = es[0]
-        cls = [g.kind[e], g.lifecycle[e], g.usage[e], g.service[e], g.maxspeed[e]]
+        cls = list(g.cls[e])
         line([wid, g.version[wid], cls, deltas(lons), deltas(lats), deltas(nids), [g.node_id[j] for j in cuts],
               [g.node_id[j] for j in cuts if g.stop[j]]])
     for sid, js in table.items():
