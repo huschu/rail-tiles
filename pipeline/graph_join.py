@@ -34,6 +34,7 @@ import math
 import os
 import struct
 import sys
+import tempfile
 from compression import zstd
 from concurrent.futures import ProcessPoolExecutor
 from itertools import accumulate
@@ -197,3 +198,57 @@ def write_stations(regions_dir, stops, path):
         f.write(zstd.compress(G.station_file(features, {sid: sorted(ids) for sid, ids in stops.items()}),
                               level=LEVEL))
     return sum(1 for f in features if f["properties"]["kind"] in G.TRAIN_STATIONS)
+
+
+def _build(path):
+    """A chunk's compressed tile, or None without edges, with its counts."""
+    g = chunk(path)
+    os.remove(path)
+    blob = zstd.compress(G.encode(g), level=LEVEL) if g.edge_count else None
+    return blob, len(g.node_id), g.edge_count
+
+
+def main():
+    if len(sys.argv) != 4:
+        sys.exit("usage: graph_join.py REGIONS_DIR OUT_DIR TAG")
+    regions_dir, out_dir, tag = sys.argv[1:]
+    sidecars = sorted(glob.glob(os.path.join(regions_dir, "**", "*.graph.jsonl.zst"), recursive=True))
+    if not sidecars:
+        sys.exit(f"no graph sidecars in {regions_dir}")
+    os.makedirs(out_dir, exist_ok=True)
+    graph_path = os.path.join(out_dir, f"track-graph-{tag}.rltg.pmtiles")
+    stations_path = os.path.join(out_dir, f"track-stations-{tag}.rlts.zst")
+    ents, bounds, junctions, edges, stale = [], [], 0, 0, 0
+    with tempfile.TemporaryDirectory(prefix="graph-") as tmp, tempfile.TemporaryFile(dir=tmp) as data, \
+            ProcessPoolExecutor() as ex:
+        buckets, stops = split(sidecars, tmp)
+        tiles = Spill(lambda t: os.path.join(tmp, f"{t[0]}_{t[1]}.jsonl"))
+        for out, old in ex.map(bucket, buckets, buffersize=os.cpu_count()):
+            stale += old
+            for t, lines in out.items():
+                tiles.add(t, lines)
+        tiles.flush()
+        order = sorted((zxy_to_tileid(G.CHUNK_ZOOM, *t), t) for t in tiles.paths)
+        paths = [tiles.paths[t] for _, t in order]
+        for (tid, t), (blob, n, e) in zip(order, ex.map(_build, paths, buffersize=os.cpu_count())):
+            if blob is None:
+                continue
+            junctions += n
+            edges += e
+            ents.append((tid, 1, data.tell(), len(blob)))
+            bounds.append(tile_bounds(*t))
+            data.write(blob)
+        if not ents:
+            sys.exit("no track in the graph sidecars")
+        write_archive(ents, bounds, data, graph_path)
+    stations = write_stations(regions_dir, stops, stations_path)
+    if stale:
+        print(f"track graph: {stale} way copies older than another region's", file=sys.stderr)
+    print(f"track graph: {len(sidecars)} regions, {len(ents)} chunks, {junctions:,} junctions and "
+          f"{edges:,} edges counted per chunk, {stations:,} stations; "
+          f"{os.path.getsize(graph_path) / 1e6:.1f} MB + {os.path.getsize(stations_path) / 1e6:.1f} MB",
+          file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()
