@@ -241,6 +241,15 @@ class Tracks(unittest.TestCase):
         g = G.build([opl_way(70, [(1, 10.0, 50.0), (2, 10.01, 50.0)]), tram, lone, route])
         self.assertEqual(sorted(g.version), [70, 71])
 
+    def test_freight_only_track_stays_only_where_a_train_route_runs(self):
+        line = opl_way(70, [(1, 10.0, 50.0), (2, 10.01, 50.0)])
+        used = opl_way(71, [(2, 10.01, 50.0), (3, 10.02, 50.0)]).replace("usage=main", "usage=main,railway:traffic_mode=freight")
+        bypass = opl_way(72, [(3, 10.02, 50.0), (4, 10.03, 50.0)]).replace("usage=main", "usage=main,railway:traffic_mode=freight")
+        mixed = opl_way(73, [(4, 10.03, 50.0), (5, 10.04, 50.0)]).replace("usage=main", "usage=main,railway:traffic_mode=mixed")
+        route = "r5 v1 dV c0 t2026-01-01T00:00:00Z i0 u Troute=train Mw71@\n"
+        g = G.build([line, used, bypass, mixed, route])
+        self.assertEqual(sorted(g.version), [70, 71, 73])
+
 
 if __name__ == "__main__":
     unittest.main()

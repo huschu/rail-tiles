@@ -10,7 +10,10 @@ position (so a trip can start or end at a platform). An edge is the piece of
 one way between two junctions, carrying the way id, its vertex range in the
 way, its length and the classification the tiles use. Only track a train can
 run on is kept: rail, narrow gauge and light rail in use, disused or being
-built, and any track a train or light rail route runs over. A station
+built, and any track a train or light rail route runs over. Freight-only
+track (railway:traffic_mode=freight) stays only where such a route runs, or
+a search sends passenger trips through freight bypasses such as
+Innsbruck's Inntaltunnel, which is faster than the line through the city. A station
 without stop positions gets the nearest track node within HALT_TRACK_M as
 one, so every station a train can reach has a junction to start from.
 
@@ -307,7 +310,8 @@ def build(lines):
         if t == "w":
             wid, version, tags, nodes, truncated = _way(line)
             if len(nodes) >= 2 and C.keep(tags) and C.lifecycle(tags) not in NO_TRACK:
-                found.append((wid, version, edge_class(tags), nodes, truncated))
+                freight = C.traffic_mode_of(tags) == "freight"
+                found.append((wid, version, edge_class(tags), freight, nodes, truncated))
         elif t == "n" and "stop" in line:
             nid, tags = _node(line)
             if is_stop(tags):
@@ -319,8 +323,8 @@ def build(lines):
 
     on_routes = {int(w[1:]) for r in g.relations if r["tags"].get("route") in TRAIN_ROUTES for w in r["ways"]}
     ways = []
-    for wid, version, cls, nodes, truncated in found:
-        if (cls[0] in S.TRAIN_KINDS and cls[1] in S.LIFECYCLE) or wid in on_routes:
+    for wid, version, cls, freight, nodes, truncated in found:
+        if (cls[0] in S.TRAIN_KINDS and cls[1] in S.LIFECYCLE and not freight) or wid in on_routes:
             ways.append((wid, cls, nodes))
             g.version[wid] = version
             g.way_nodes[wid] = array("q", (nid for nid, _, _ in nodes))
