@@ -213,25 +213,53 @@ def _reach(place):
 
 
 def _fold(text):
-    return "".join(c for c in unicodedata.normalize("NFKD", text.casefold()) if not unicodedata.combining(c))
+    # Composed again, so a Hangul syllable stays one letter, as in the app.
+    return unicodedata.normalize("NFC", "".join(c for c in unicodedata.normalize("NFKD", text.casefold())
+                                                if not unicodedata.combining(c)))
 
 
 _WORD = re.compile(r"\w+")
 
 
-def names_town(station_names, town_names):
+# Endings that make a place's name an administrative one, as 苏州市 is the
+# city of 苏州: a station named 苏州南 lies in it.
+_PLACE_ENDINGS = "市都府県县区區町村镇鎮郡道省시군구읍면동리"
+
+
+def _same_word(a, b):
+    """One place's name in two forms, as Тоцкая and Тоцкое, Sundbybergs and
+    Sundbyberg or Новосергиевская and Новосергиевка: words of five or more
+    letters that part at most two letters before their ends, or at most
+    four after six letters in common."""
+    if min(len(a), len(b)) < 5:
+        return a == b
+    common = 0
+    while common < min(len(a), len(b)) and a[common] == b[common]:
+        common += 1
+    tail = max(len(a), len(b)) - common
+    return common >= 4 and tail <= 2 or common >= 6 and tail <= 4
+
+
+def names_town(station_names, town_names, forms=True):
     """Whether a station's names already say its town: a town word of four
-    or more letters among a station name's words, or every word of a town
-    without such words, as Ulm; ignoring case and accents; for scripts
-    without spaces, either name holding the other."""
-    stations = [(_fold(n), set(_WORD.findall(_fold(n)))) for n in station_names if n]
+    or more letters among a station name's words, with `forms` in either of
+    two forms, or every word of a town without such words, as Ulm; ignoring
+    case and accents; for scripts without spaces, either name holding the
+    other, the town also without an administrative ending such as 市."""
+    stations = [(_fold(n), _WORD.findall(_fold(n))) for n in station_names if n]
     for town in (_fold(n) for n in town_names if n):
         words = _WORD.findall(town)
         long = [w for w in words if len(w) >= 4]
         for station, own in stations:
-            if (any(w in own for w in long) if long else words and all(w in own for w in words)):
+            if long:
+                if any(_same_word(w, o) if forms else w == o for w in long for o in own):
+                    return True
+            elif words and all(w in own for w in words):
                 return True
-            if not town.isascii() and len(town) >= 2 and (town in station or station in town):
+            if town.isascii():
+                continue
+            cores = [town] + ([town[:-1]] if len(town) > 2 and town[-1] in _PLACE_ENDINGS else [])
+            if any(len(c) >= 2 and (c in station or station in c) for c in cores):
                 return True
     return False
 
@@ -255,7 +283,8 @@ def assign_towns(stations, places):
         if not near:
             continue
         own = [s["name"] or ""] + [n for _, n in s.get("names", [])]
-        named = [(p, d) for p, d in near if names_town(own, [p["name"]] + [n for _, n in p["names"]])]
+        # Word forms would pick Bensheim for Mannheim's Bensheimer Straße.
+        named = [(p, d) for p, d in near if names_town(own, [p["name"]] + [n for _, n in p["names"]], forms=False)]
         out[sid] = min(named or near, key=lambda pd: pd[1] / _reach(pd[0]))[0]
     return out
 

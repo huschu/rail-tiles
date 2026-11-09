@@ -180,6 +180,28 @@ class Towns(unittest.TestCase):
         # "am" and "Main" alone say nothing.
         self.assertFalse(S.names_town(["Mainz Hbf"], ["Offenbach am Main"]))
 
+    def test_names_town_takes_another_form_of_a_word_and_a_town_without_its_administrative_ending(self):
+        self.assertTrue(S.names_town(["Тоцкая"], ["Тоцкое"]))
+        self.assertTrue(S.names_town(["Новосергиевская"], ["Новосергиевка"]))
+        self.assertTrue(S.names_town(["Sundbybergs centrum"], ["Sundbyberg"]))
+        self.assertFalse(S.names_town(["Neustadt Süd"], ["Neustrelitz"]))
+        self.assertFalse(S.names_town(["Rappersbichl - Colle Renon"], ["Collalbo"]))
+        self.assertFalse(S.names_town(["Margit híd, budai hídfő"], ["Budapest"]))
+        self.assertTrue(S.names_town(["苏州南"], ["苏州市"]))
+        self.assertTrue(S.names_town(["会津下郷"], ["下郷町"]))
+        self.assertFalse(S.names_town(["苏州南"], ["杨文头村"]))
+        self.assertTrue(S.names_town(["안평기지"], ["안평리"]))
+
+    def test_a_street_named_after_another_town_keeps_the_town_it_lies_in(self):
+        stations = {"n10": self.station("n10", "Bensheimer Straße", 8.48, 49.49)}
+        places = [self.place("n1", "Mannheim", "city", 8.47, 49.49), self.place("n2", "Bensheim", "town", 8.52, 49.50)]
+        self.assertEqual({k: v["name"] for k, v in S.assign_towns(stations, places).items()}, {"n10": "Mannheim"})
+
+    def test_a_station_named_after_its_city_takes_it_over_a_nearer_village(self):
+        stations = {"n10": self.station("n10", "苏州南", 120.60, 31.20)}
+        places = [self.place("n1", "苏州市", "city", 120.62, 31.30), self.place("n2", "杨文头村", "village", 120.605, 31.205)]
+        self.assertEqual({k: v["name"] for k, v in S.assign_towns(stations, places).items()}, {"n10": "苏州市"})
+
     def test_population_reads_separators_and_skips_estimates_in_words(self):
         self.assertEqual(S._population("3 850 809"), 3850809)
         self.assertEqual(S._population("12,345"), 12345)
