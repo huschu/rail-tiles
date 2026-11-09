@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import os
 import sys
@@ -211,3 +212,37 @@ class Towns(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SearchWords(unittest.TestCase):
+    # TrackSearchTests in the app asserts the same table, so a typed query
+    # folds to the words stored here.
+    TABLE = [
+        ("Frankfurt (Main) Hbf", ["frankfurt", "main", "hauptbahnhof"]),
+        ("Straße", ["straße"]),
+        ("Ofﬁce", ["office"]),
+        ("İstanbul", ["istanbul"]),
+        ("Bâle CFF", ["bale", "cff"]),
+        ("서울역", ["서울역"]),
+        ("नई दिल्ली", ["नई", "दिलली"]),
+        ("Ｔｏｋｙｏ", ["tokyo"]),
+        ("ΘΕΣΣΑΛΟΝΙΚΗ", ["θεσσαλονικη"]),
+        ("S+U Alexanderplatz", ["s", "u", "alexanderplatz"]),
+    ]
+
+    def test_a_name_folds_and_splits_as_the_app_folds_a_query(self):
+        for name, words in self.TABLE:
+            self.assertEqual(S.search_words(name), words, name)
+
+    @unittest.skipUnless(importlib.util.find_spec("icu"), "needs PyICU")
+    def test_only_a_name_in_another_script_gets_a_latin_spelling(self):
+        self.assertEqual(S.latin_words(["Basel SBB", "Bâle CFF"]), [])
+        self.assertEqual(S.latin_words(["", "Москва"]), [])
+        self.assertEqual(S.latin_words(["Москва", "Moscow"]), [])
+        self.assertEqual(S.latin_words(["Москва"]), ["moskva"])
+
+    def test_importance_weighs_services_main_line_and_town(self):
+        self.assertEqual(S.importance("light_rail", "", 0, 0), 0)
+        self.assertAlmostEqual(S.importance("train", '[["a"],["b"],["c"]]', 1, 999), 2 + 1 + 2 + 1.5)
+        self.assertAlmostEqual(S.importance("train", '[["a"]]', 2, 0), 1 + 1 + 1)
+

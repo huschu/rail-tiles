@@ -57,16 +57,24 @@ station by name before it loads the graph around it:
 
   "RLTS", u32 version, u32 towns T
   towns, in order of first use: u16-prefixed name, u8 count of other names
-            as a station's, u8 kind (PLACE_RANK), u32 population (0 unknown)
+            as a station's, u8 kind (PLACE_RANK), u32 population (0 unknown),
+            then words W of each name, the name first
   u32 stations S
   stations, sorted by id: u8-prefixed id, u16-prefixed name, u8 count of
             other names, each a u8-prefixed key ("en" for name:en, "int",
             "alt", "official") and a u16-prefixed name, u8-prefixed kind,
             i32 lon, i32 lat (1e-7 degrees), u16 count, i64 node ids of its
             stop positions, u32-prefixed services as the tiles' `routes`
-            JSON, u32 town index (0xFFFFFFFF for none); every station a
-            train stops at (TRAIN_STATIONS), with or without stop positions
-            on track
+            JSON, u32 town index (0xFFFFFFFF for none), f32 importance
+            (stations.importance), u8 per name, the name first, 1 when it
+            already says the town (stations.names_town), words W of each
+            name, the name first, then words W of its Latin spelling
+            (stations.latin_words); every station a train stops at
+            (TRAIN_STATIONS), with or without stop positions on track
+  W:        u8 count, u16-prefixed words (stations.search_words)
+
+The app picks the name to show by the reader's language, so the file says
+for every name whether it holds the town and which words find it.
 
 also one zstd frame. Names, positions and services are the map's stations
 (stations.features); only the stop positions come from the graph.
@@ -401,7 +409,7 @@ def _track_beside(g, stations):
 
 
 VERSION = 5
-STATIONS_VERSION = 3
+STATIONS_VERSION = 4
 
 # A town's kind in the station file; 0 for none.
 PLACE_RANK = {"city": 1, "town": 2, "village": 3}
@@ -579,10 +587,19 @@ def _town_key(t):
 
 
 def _put_names(b, names):
+    """Writes the key and name pairs the file has room for; returns their names."""
     pairs = [(k.encode()[:255], v.encode()[:65535]) for k, v in names][:255]
     b.append(len(pairs))
     for k, v in pairs:
         b += bytes([len(k)]) + k + struct.pack("<H", len(v)) + v
+    return [v.decode(errors="ignore") for _, v in pairs]
+
+
+def _put_words(b, words):
+    words = [w.encode()[:65535] for w in words][:255]
+    b.append(len(words))
+    for w in words:
+        b += struct.pack("<H", len(w)) + w
 
 
 def station_file(features, stops):
@@ -601,8 +618,10 @@ def station_file(features, stops):
         town_index[key] = len(town_index)
         tname = t["name"].encode()[:65535]
         towns += struct.pack("<H", len(tname)) + tname
-        _put_names(towns, t.get("names", []))
+        others = _put_names(towns, t.get("names", []))
         towns += struct.pack("<BI", PLACE_RANK.get(t.get("place"), 0), min(t.get("population") or 0, 0xFFFFFFFF))
+        for n in [t["name"]] + others:
+            _put_words(towns, ST.search_words(n))
     b = bytearray(b"RLTS")
     b += struct.pack("<2I", STATIONS_VERSION, len(town_index)) + towns + struct.pack("<I", len(listed))
     for f in listed:
@@ -614,11 +633,18 @@ def station_file(features, stops):
         ids = stops.get(sid, [])[:65535]
         routes_json = (p.get("routes") or "").encode()
         b += bytes([len(sid)]) + sid.encode() + struct.pack("<H", len(name)) + name
-        _put_names(b, p.get("names", []))
+        names = [p.get("name") or ""] + _put_names(b, p.get("names", []))
         b += bytes([len(kind)]) + kind + struct.pack("<iiH", _e7(lon), _e7(lat), len(ids)) + _arr("q", ids)
         b += struct.pack("<I", len(routes_json)) + routes_json
         t = p.get("town")
         b += struct.pack("<I", town_index[_town_key(t)] if t else 0xFFFFFFFF)
+        b += struct.pack("<f", ST.importance(p["kind"], p.get("routes"), PLACE_RANK.get(t.get("place"), 0) if t else 0,
+                                             t.get("population") if t else 0))
+        town_names = [t["name"]] + [v for _, v in t.get("names", [])] if t else []
+        b += bytes(1 if t and ST.names_town([n], town_names) else 0 for n in names)
+        for n in names:
+            _put_words(b, ST.search_words(n))
+        _put_words(b, ST.latin_words(list(dict.fromkeys(names))))
     return bytes(b)
 
 

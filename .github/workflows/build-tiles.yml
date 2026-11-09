@@ -335,6 +335,15 @@ jobs:
           python3 pipeline/night.py join regions "$OUT" \
             || { rm -f "$OUT"; echo "::warning::night trains failed; the manifest omits them"; }
 
+      # The station file spells names in other scripts in Latin letters
+      # (stations.latin_words) with ICU. Its own step, so a missing binding
+      # fails the run instead of dropping the track graph below.
+      - name: Install PyICU
+        run: |
+          sudo apt-get update && sudo apt-get install -y libicu-dev pkg-config
+          python3 -m pip install PyICU
+          python3 -c "import icu"
+
       # The planet's track graph, in chunks, and the stations the app finds
       # trips between (pipeline/graph_join.py), named and served as in the
       # stations layer. A region without a graph sidecar leaves a hole; the

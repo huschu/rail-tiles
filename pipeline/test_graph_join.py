@@ -1,4 +1,6 @@
+import importlib.util
 import json
+import math
 import os
 import shutil
 import struct
@@ -205,35 +207,73 @@ class Stations(unittest.TestCase):
                                           "place": "city", "population": 177000}
         raw = G.station_file(feats, {"n2": [10, 11], "n1": [12]})
         self.assertEqual(raw[:4], b"RLTS")
-        self.assertEqual(struct.unpack_from("<2I", raw, 4), (G.STATIONS_VERSION, 1))
-        self.assertEqual(raw[12:19], b"\x05\x00Basel")
-        self.assertEqual(raw[19:23], b"\x01\x02fr")
-        self.assertEqual(raw[23:25 + len("Bâle".encode())], struct.pack("<H", 5) + "Bâle".encode())
-        pos = 25 + len("Bâle".encode())
-        self.assertEqual(struct.unpack_from("<BI", raw, pos), (1, 177000))
-        pos += 5
-        self.assertEqual(struct.unpack_from("<I", raw, pos), (1,))
-        pos += 4
-        self.assertEqual(raw[pos + 1:pos + 3], b"n2")
-        pos += 3
-        name_len, = struct.unpack_from("<H", raw, pos)
-        pos += 2 + name_len
-        self.assertEqual(raw[pos], 1)
-        self.assertEqual(raw[pos + 1:pos + 4], b"\x02fr")
-        other_len, = struct.unpack_from("<H", raw, pos + 4)
-        self.assertEqual(raw[pos + 6:pos + 6 + other_len].decode(), "Bâle CFF")
-        pos += 6 + other_len
-        pos += 1 + raw[pos]
-        lon, lat, count = struct.unpack_from("<iiH", raw, pos)
-        pos += 10
-        self.assertEqual((lon, lat), (75895000, 475474000))
-        self.assertEqual(struct.unpack_from(f"<{count}q", raw, pos), (10, 11))
+        version, towns, stations = decode_stations(raw)
+        self.assertEqual(version, G.STATIONS_VERSION)
+        self.assertEqual(towns, [{"name": "Basel", "others": [("fr", "Bâle")], "rank": 1, "population": 177000,
+                                  "words": [["basel"], ["bale"]]}])
+        (station,) = stations
+        importance = station.pop("importance")
+        self.assertAlmostEqual(importance, 1 + 1 + 2 + math.log10(177001) / 2, places=5)
+        self.assertEqual(station, {"id": "n2", "name": "Basel SBB", "others": [("fr", "Bâle CFF")], "kind": "train",
+                                   "lon": 75895000, "lat": 475474000, "stops": [10, 11], "routes": '[["train"]]',
+                                   "town": 0, "holds_town": [1, 1], "words": [["basel", "sbb"], ["bale", "cff"]],
+                                   "latin": []})
+
+    @unittest.skipUnless(importlib.util.find_spec("icu"), "needs PyICU")
+    def test_a_station_named_only_in_another_script_carries_its_latin_spelling(self):
+        feats = [{"properties": {"osm_id": "n1", "kind": "train", "name": "Москва-Пассажирская"},
+                  "geometry": {"coordinates": [37.65, 55.77]}}]
+        _, _, (station,) = decode_stations(G.station_file(feats, {}))
+        self.assertEqual(station["words"], [["москва", "пассажирская"]])
+        self.assertEqual(station["latin"], ["moskva", "passazirskaa"])
+        self.assertEqual(station["holds_town"], [0])
+
+
+def decode_stations(raw):
+    """(version, towns, stations) of a station file, as the app reads it."""
+    pos = 4
+
+    def take(fmt):
+        nonlocal pos
+        values = struct.unpack_from("<" + fmt, raw, pos)
+        pos += struct.calcsize("<" + fmt)
+        return values if len(values) > 1 else values[0]
+
+    def text(fmt):
+        nonlocal pos
+        n = take(fmt)
+        pos += n
+        return raw[pos - n:pos].decode()
+
+    def others():
+        return [(text("B"), text("H")) for _ in range(take("B"))]
+
+    def words():
+        return [text("H") for _ in range(take("B"))]
+
+    version, town_count = take("2I")
+    towns = []
+    for _ in range(town_count):
+        town = {"name": text("H"), "others": others(), "rank": take("B"), "population": take("I")}
+        town["words"] = [words() for _ in range(1 + len(town["others"]))]
+        towns.append(town)
+    stations = []
+    for _ in range(take("I")):
+        s = {"id": text("B"), "name": text("H"), "others": others(), "kind": text("B")}
+        s["lon"], s["lat"], count = take("iiH")
+        s["stops"] = list(struct.unpack_from(f"<{count}q", raw, pos))
         pos += 8 * count
-        routes_len, = struct.unpack_from("<I", raw, pos)
-        self.assertEqual(raw[pos + 4:pos + 4 + routes_len], b'[["train"]]')
-        pos += 4 + routes_len
-        self.assertEqual(struct.unpack_from("<I", raw, pos), (0,))
-        self.assertEqual(pos + 4, len(raw))
+        s["routes"] = text("I")
+        s["town"] = take("I")
+        s["importance"] = take("f")
+        n = 1 + len(s["others"])
+        s["holds_town"] = list(raw[pos:pos + n])
+        pos += n
+        s["words"] = [words() for _ in range(n)]
+        s["latin"] = words()
+        stations.append(s)
+    assert pos == len(raw)
+    return version, towns, stations
 
 
 def opl_way(wid, nodes, version=1):

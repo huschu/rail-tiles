@@ -213,7 +213,7 @@ def _reach(place):
 
 
 def _fold(text):
-    # Composed again, so a Hangul syllable stays one letter, as in the app.
+    # Composed again, so a Hangul syllable stays one letter and meets an ending such as 리.
     return unicodedata.normalize("NFC", "".join(c for c in unicodedata.normalize("NFKD", text.casefold())
                                                 if not unicodedata.combining(c)))
 
@@ -262,6 +262,60 @@ def names_town(station_names, town_names, forms=True):
             if any(len(c) >= 2 and (c in station or station in c) for c in cores):
                 return True
     return False
+
+
+SEARCH_ABBREVIATIONS = {"hbf": "hauptbahnhof", "bf": "bahnhof", "bhf": "bahnhof"}
+
+
+def search_fold(text):
+    """Lower case without accents or compatibility forms. The app folds a
+    typed query the same way, step for step, so its words meet these."""
+    return unicodedata.normalize("NFC", "".join(c for c in unicodedata.normalize("NFKD", text.lower())
+                                                if unicodedata.category(c) != "Mn"))
+
+
+def search_words(text):
+    """The words the app's station search finds `text` by: runs of letters,
+    numbers and marks, "Hbf" read as "Hauptbahnhof"."""
+    words, word = [], []
+    for c in search_fold(text):
+        if unicodedata.category(c)[0] in "LNM":
+            word.append(c)
+        elif word:
+            words.append("".join(word))
+            word = []
+    if word:
+        words.append("".join(word))
+    return [SEARCH_ABBREVIATIONS.get(w, w) for w in words]
+
+
+def is_latin(text):
+    return all(ord(c) < 0x250 or 0x1E00 <= ord(c) <= 0x1EFF or not c.isalpha() for c in text)
+
+
+_TO_LATIN = None
+
+
+def latin_words(names):
+    """A station named only in other scripts is found by its first name's
+    Latin letters too, as ICU's Any-Latin spells them; none otherwise."""
+    global _TO_LATIN
+    if not names or any(is_latin(n) for n in names):
+        return []
+    if _TO_LATIN is None:
+        import icu
+        _TO_LATIN = icu.Transliterator.createInstance("Any-Latin")
+    return search_words(_TO_LATIN.transliterate(names[0]))
+
+
+def importance(kind, routes_json, place_rank, population):
+    """How much the app's search favours a station: each doubling of its
+    services a point, a main-line station a point more, a city two and a
+    town one, and a big town a little more again, so "Paris" finds Paris
+    before a hamlet of that name."""
+    score = math.log2(1 + (routes_json or "").count('["')) + (1 if kind == "train" else 0)
+    score += {1: 2, 2: 1}.get(place_rank, 0)
+    return score + math.log10(1 + (population or 0)) / 2
 
 
 def assign_towns(stations, places):

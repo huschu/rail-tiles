@@ -172,7 +172,11 @@ map:
 | asset | contents |
 |---|---|
 | `track-graph-<tag>.rltg.pmtiles` | PMTiles, tile type 0, one zoom (`trackGraph.zoom`, 8): each tile a zstd frame of `graph.py`'s graph file with every edge that has an end in the tile |
-| `track-stations-<tag>.rlts.zst` | `graph.py`'s station file: every train and light rail station with its name and its names in other languages, position, services and stop positions as node ids |
+| `track-stations-<tag>.rlts.zst` | `graph.py`'s station file: every train and light rail station with its name and its names in other languages, position, services and stop positions as node ids, and what the app's search would otherwise work out on the phone: each name's search words and whether it says the town, the station's Latin spelling and its importance |
+
+`graph_join.py` needs PyICU for the Latin spellings. CI builds it against
+the system ICU; on a Mac, `brew install icu4c` and then
+`PKG_CONFIG_PATH="$(brew --prefix icu4c)/lib/pkgconfig" pip install PyICU`.
 
 The graph holds only what a search needs: track a train can use, junctions
 where a train can turn off or stop, edges listing the ways they cover, and
