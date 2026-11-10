@@ -55,7 +55,13 @@ One zstd frame of columns; v is an unsigned LEB128 varint, z a zigzag one:
 Stations go in a file of their own (station_file), so the app finds a
 station by name before it loads the graph around it:
 
-  "RLTS", u32 version, u32 towns T
+  "RLTS", u32 version, u32 words N
+  words, the search words (stations.search_words) of every name below,
+            once each and sorted by their UTF-8 bytes, so the words a typed
+            prefix starts are one run of indexes: per word a varint of the
+            bytes it shares with the word before, a varint count of the
+            rest, and the rest
+  u32 towns T
   towns, in order of first use: u16-prefixed name, u8 count of other names
             as a station's, u8 kind (PLACE_RANK), u32 population (0 unknown),
             then words W of each name, the name first
@@ -71,7 +77,7 @@ station by name before it loads the graph around it:
             name, the name first, then words W of its Latin spelling
             (stations.latin_words); every station a train stops at
             (TRAIN_STATIONS), with or without stop positions on track
-  W:        u8 count, u16-prefixed words (stations.search_words)
+  W:        a varint count, then varint indexes into words
 
 The app picks the name to show by the reader's language, so the file says
 for every name whether it holds the town and which words find it.
@@ -409,7 +415,7 @@ def _track_beside(g, stations):
 
 
 VERSION = 5
-STATIONS_VERSION = 4
+STATIONS_VERSION = 5
 
 # A town's kind in the station file; 0 for none.
 PLACE_RANK = {"city": 1, "town": 2, "village": 3}
@@ -595,11 +601,48 @@ def _put_names(b, names):
     return [v.decode(errors="ignore") for _, v in pairs]
 
 
-def _put_words(b, words):
-    words = [w.encode()[:65535] for w in words][:255]
-    b.append(len(words))
+class _Parts:
+    """Bytes with word lists among them, written as indexes once every
+    word is known."""
+
+    def __init__(self):
+        self.parts, self.bytes = [], bytearray()
+
+    def __iadd__(self, b):
+        self.bytes += b
+        return self
+
+    def append(self, byte):
+        self.bytes.append(byte)
+
+    def words(self, words):
+        self.parts += [bytes(self.bytes), [w.encode() for w in words]]
+        self.bytes = bytearray()
+
+    def render(self, out, index):
+        for part in self.parts + [bytes(self.bytes)]:
+            if isinstance(part, bytes):
+                out += part
+                continue
+            _varint(out, len(part))
+            for w in part:
+                _varint(out, index[w])
+
+    def vocabulary(self):
+        return {w for part in self.parts if isinstance(part, list) for w in part}
+
+
+def _put_vocabulary(out, words):
+    out += struct.pack("<I", len(words))
+    before = b""
     for w in words:
-        b += struct.pack("<H", len(w)) + w
+        shared = 0
+        while shared < min(len(w), len(before)) and w[shared] == before[shared]:
+            shared += 1
+        _varint(out, shared)
+        _varint(out, len(w) - shared)
+        out += w[shared:]
+        before = w
 
 
 def station_file(features, stops):
@@ -607,7 +650,7 @@ def station_file(features, stops):
     {station id: [stop node ids]}."""
     listed = sorted((f for f in features if f["properties"]["kind"] in TRAIN_STATIONS),
                     key=lambda f: f["properties"]["osm_id"])
-    towns, town_index = bytearray(), {}
+    towns, town_index = _Parts(), {}
     for f in listed:
         t = f["properties"].get("town")
         if not t:
@@ -621,9 +664,8 @@ def station_file(features, stops):
         others = _put_names(towns, t.get("names", []))
         towns += struct.pack("<BI", PLACE_RANK.get(t.get("place"), 0), min(t.get("population") or 0, 0xFFFFFFFF))
         for n in [t["name"]] + others:
-            _put_words(towns, ST.search_words(n))
-    b = bytearray(b"RLTS")
-    b += struct.pack("<2I", STATIONS_VERSION, len(town_index)) + towns + struct.pack("<I", len(listed))
+            towns.words(ST.search_words(n))
+    b = _Parts()
     for f in listed:
         p = f["properties"]
         sid = p["osm_id"]
@@ -643,9 +685,17 @@ def station_file(features, stops):
         town_names = [t["name"]] + [v for _, v in t.get("names", [])] if t else []
         b += bytes(1 if t and ST.names_town([n], town_names) else 0 for n in names)
         for n in names:
-            _put_words(b, ST.search_words(n))
-        _put_words(b, ST.latin_words(list(dict.fromkeys(names))))
-    return bytes(b)
+            b.words(ST.search_words(n))
+        b.words(ST.latin_words(list(dict.fromkeys(names))))
+    words = sorted(towns.vocabulary() | b.vocabulary())
+    out = bytearray(b"RLTS") + struct.pack("<I", STATIONS_VERSION)
+    _put_vocabulary(out, words)
+    index = {w: i for i, w in enumerate(words)}
+    out += struct.pack("<I", len(town_index))
+    towns.render(out, index)
+    out += struct.pack("<I", len(listed))
+    b.render(out, index)
+    return bytes(out)
 
 
 # Chunks are tiles at this zoom: about 100 km across in central Europe.

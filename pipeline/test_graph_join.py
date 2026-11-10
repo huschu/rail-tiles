@@ -248,10 +248,29 @@ def decode_stations(raw):
     def others():
         return [(text("B"), text("H")) for _ in range(take("B"))]
 
-    def words():
-        return [text("H") for _ in range(take("B"))]
+    def varint():
+        nonlocal pos
+        v = shift = 0
+        while True:
+            c = raw[pos]
+            pos += 1
+            v |= (c & 0x7F) << shift
+            if c < 0x80:
+                return v
+            shift += 7
 
-    version, town_count = take("2I")
+    def words():
+        return [vocabulary[varint()] for _ in range(varint())]
+
+    version = take("I")
+    vocabulary, before = [], b""
+    for _ in range(take("I")):
+        shared, rest = varint(), varint()
+        before = before[:shared] + raw[pos:pos + rest]
+        pos += rest
+        vocabulary.append(before.decode())
+    assert [w.encode() for w in vocabulary] == sorted({w.encode() for w in vocabulary})
+    town_count = take("I")
     towns = []
     for _ in range(town_count):
         town = {"name": text("H"), "others": others(), "rank": take("B"), "population": take("I")}
