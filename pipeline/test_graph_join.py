@@ -199,7 +199,7 @@ class WayEdges(unittest.TestCase):
 class Stations(unittest.TestCase):
     def test_the_station_file_lists_train_stations_with_their_stops(self):
         feats = [{"properties": {"osm_id": "n2", "kind": "train", "name": "Basel SBB", "routes": '[["train"]]',
-                                 "names": [["fr", "Bâle CFF"]], "next": ["n5"]},
+                                 "names": [["fr", "Bâle CFF"]], "lines": ["n2|n5"]},
                   "geometry": {"coordinates": [7.5895, 47.5474]}},
                  {"properties": {"osm_id": "n1", "kind": "tram", "name": "Bankverein"},
                   "geometry": {"coordinates": [7.59, 47.55]}}]
@@ -225,8 +225,8 @@ class Stations(unittest.TestCase):
         def feat(sid, name, lon, lat, **props):
             return {"properties": {"osm_id": sid, "kind": "train", "name": name, "town": berlin, **props},
                     "geometry": {"coordinates": [lon, lat]}}
-        feats = [feat("n1", "Berlin Hauptbahnhof", 13.3695, 52.5251, next=["n10", "n11"]),
-                 feat("n2", "Berlin Hauptbahnhof (tief)", 13.3694, 52.5249, next=["n1", "n12"]),
+        feats = [feat("n1", "Berlin Hauptbahnhof", 13.3695, 52.5251, lines=["n10|n11", "n10|n12"]),
+                 feat("n2", "Berlin Hauptbahnhof (tief)", 13.3694, 52.5249, lines=["n10|n12", "n13|n14"]),
                  feat("n3", "Hauptbahnhof", 13.3688, 52.5257),
                  # The same name 6 km off is another station.
                  feat("n4", "Hauptbahnhof", 13.45, 52.53),
@@ -235,7 +235,7 @@ class Stations(unittest.TestCase):
                  feat("n7", "Alexanderplatz", 13.4114, 52.5215)]
         stations = decode_stations(G.station_file(feats, {}))[2]
         groups = [s["group"] for s in stations]
-        # The levels' neighbours together, less each other: three.
+        # The levels' lines together: three.
         city = 1 + 2 + math.log10(3_850_001) / 2
         self.assertAlmostEqual(stations[0]["importance"], 2 + city, places=4)
         self.assertAlmostEqual(stations[1]["importance"], 2 + city, places=4)

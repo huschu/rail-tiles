@@ -72,8 +72,7 @@ station by name before it loads the graph around it:
             i32 lon, i32 lat (1e-7 degrees), u16 count, i64 node ids of its
             stop positions, u32-prefixed services as the tiles' `routes`
             JSON, u32 town index (0xFFFFFFFF for none), f32 importance
-            (stations.importance, its group's neighbours counted
-            together), u8 per name, the name first, 1 when it
+            (stations.importance, its group's lines counted together), u8 per name, the name first, 1 when it
             already says the town (stations.names_town), words W of each
             name, the name first, then words W of its Latin spelling
             (stations.latin_words), then a varint group (station_groups),
@@ -714,7 +713,6 @@ def station_file(features, stops):
     {station id: [stop node ids]}."""
     listed = sorted((f for f in features if f["properties"]["kind"] in TRAIN_STATIONS),
                     key=lambda f: f["properties"]["osm_id"])
-    by_id = {f["properties"]["osm_id"]: f for f in listed}
     towns, town_index = _Parts(), {}
     for f in listed:
         t = f["properties"].get("town")
@@ -732,20 +730,13 @@ def station_file(features, stops):
             towns.words(ST.search_words(n))
     b = _Parts()
     groups = station_groups(listed)
-    # A station's levels and its S-Bahn count as one for importance: Berlin
-    # Hauptbahnhof's upper level alone has 5 neighbours, the whole 11.
-    ids = [f["properties"]["osm_id"] for f in listed]
+    # A station's levels and its S-Bahn count as one for importance.
     members = {}
-    for sid, g in zip(ids, groups):
-        if g:
-            members.setdefault(g, set()).add(sid)
-    neighbours = []
     for f, g in zip(listed, groups):
         if g:
-            near = set().union(*(by_id[m]["properties"].get("next", []) for m in members[g])) - members[g]
-        else:
-            near = set(f["properties"].get("next", []))
-        neighbours.append(len(near))
+            members.setdefault(g, []).append(f)
+    lines = [len(set().union(*(m["properties"].get("lines", []) for m in (members[g] if g else [f]))))
+             for f, g in zip(listed, groups)]
     for k, f in enumerate(listed):
         p = f["properties"]
         sid = p["osm_id"]
@@ -760,7 +751,7 @@ def station_file(features, stops):
         b += struct.pack("<I", len(routes_json)) + routes_json
         t = p.get("town")
         b += struct.pack("<I", town_index[_town_key(t)] if t else 0xFFFFFFFF)
-        b += struct.pack("<f", ST.importance(p["kind"], neighbours[k],
+        b += struct.pack("<f", ST.importance(p["kind"], lines[k],
                                              PLACE_RANK.get(t.get("place"), 0) if t else 0,
                                              t.get("population") if t else 0))
         town_names = [t["name"]] + [v for _, v in t.get("names", [])] if t else []
