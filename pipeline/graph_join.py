@@ -21,7 +21,9 @@ The station file (graph.py) takes names, positions and services from the
 map's stations, which the regions' station sidecars give and
 stations.merge merges as the map's join does, and the stop positions from
 the graphs. A station in two regions lists the services and stop positions
-of both.
+of both. Each region's sidecar lists every relation over its track with all
+its stops in route order, which the regions' stop positions place, so a
+line crossing borders counts once by its true ends.
 
 Needs Python 3.14+ (compression.zstd).
 
@@ -75,9 +77,9 @@ class Spill:
 
 def split(sidecars, tmp):
     """Sends each way line to its bucket's file. Returns ([bucket paths],
-    {station id: {stop node ids}})."""
+    {station id: {stop node ids}}, [relation rows, merged])."""
     buckets = Spill(lambda b: os.path.join(tmp, f"bucket{b}.jsonl"))
-    stops = {}
+    stops, relations = {}, []
     for path in sidecars:
         with zstd.open(path, "rt", encoding="utf-8") as f:
             if f.readline() != f'["sidecar",{G.SIDECAR_VERSION}]\n':
@@ -88,30 +90,33 @@ def split(sidecars, tmp):
                 if line.startswith('["stops"'):
                     _, sid, ids = json.loads(line)
                     stops.setdefault(sid, set()).update(ids)
+                elif line.startswith('["relation"'):
+                    relations.append(json.loads(line)[1])
                 else:
                     buckets.add(int(line[1:line.index(",")]) % BUCKETS, [line])
     buckets.flush()
-    return list(buckets.paths.values()), stops
+    return list(buckets.paths.values()), stops, G.merge_relations(relations)
 
 
 def way_edges(copies):
     """The newest version of a way cut at every copy's cuts, from the
-    regions' copies [(version, class, lons, lats, node ids, cuts, stops)]:
-    (class, [(i0, i1, a, b, stop flags, lons, lats)], copies older than the
-    newest). Flag 1 marks a stop at a, 2 at b."""
+    regions' copies [(version, class, lons, lats, node ids, cuts, stops,
+    relations)]: (class, [(i0, i1, a, b, stop flags, lons, lats)], copies
+    older than the newest, relations). Flag 1 marks a stop at a, 2 at b."""
     newest = max(c[0] for c in copies)
-    _, cls, lons, lats, nids, _, _ = max((c for c in copies if c[0] == newest), key=lambda c: len(c[4]))
-    cut, stop = set(), set()
+    _, cls, lons, lats, nids, _, _, _ = max((c for c in copies if c[0] == newest), key=lambda c: len(c[4]))
+    cut, stop, rels = set(), set(), set()
     for c in copies:
         cut.update(c[5])
         stop.update(c[6])
+        rels.update(c[7])
     last = len(nids) - 1
     at = [i for i, nid in enumerate(nids) if i == 0 or i == last or nid in cut]
     edges = []
     for i0, i1 in zip(at, at[1:]):
         a, b = nids[i0], nids[i1]
         edges.append((i0, i1, a, b, (a in stop) | (b in stop) << 1, lons[i0:i1 + 1], lats[i0:i1 + 1]))
-    return cls, edges, sum(1 for c in copies if c[0] < newest)
+    return cls, edges, sum(1 for c in copies if c[0] < newest), sorted(rels)
 
 
 def bucket(path):
@@ -120,16 +125,16 @@ def bucket(path):
     ways = {}
     with open(path, encoding="utf-8") as f:
         for line in f:
-            wid, version, cls, lons, lats, nids, cuts, stops = json.loads(line)
-            copy = (version, cls, *(list(accumulate(v)) for v in (lons, lats, nids)), cuts, stops)
+            wid, version, cls, lons, lats, nids, cuts, stops, rels = json.loads(line)
+            copy = (version, cls, *(list(accumulate(v)) for v in (lons, lats, nids)), cuts, stops, rels)
             ways.setdefault(wid, []).append(copy)
     os.remove(path)
     out, stale = {}, 0
     for wid, copies in ways.items():
-        cls, edges, old = way_edges(copies)
+        cls, edges, old, rels = way_edges(copies)
         stale += old
         for i0, i1, a, b, flags, lons, lats in edges:
-            line = json.dumps([wid, i0, i1, cls, a, b, flags, lons, lats], separators=(",", ":")) + "\n"
+            line = json.dumps([wid, i0, i1, cls, a, b, flags, lons, lats, rels], separators=(",", ":")) + "\n"
             for t in {G.tile_of(lons[0] / 1e7, lats[0] / 1e7), G.tile_of(lons[-1] / 1e7, lats[-1] / 1e7)}:
                 out.setdefault(t, []).append(line)
     return out, stale
@@ -141,10 +146,12 @@ def chunk(path):
     g, stops = G.Graph(), set()
     with open(path, encoding="utf-8") as f:
         records = sorted((json.loads(line) for line in f), key=lambda r: (r[0], r[1]))
-    for wid, i0, i1, cls, a, b, flags, lons, lats in records:
+    for wid, i0, i1, cls, a, b, flags, lons, lats, rels in records:
         pts = [(lon / 1e7, lat / 1e7) for lon, lat in zip(lons, lats)]
         nodes = [(a, *pts[0])] + [(0, *p) for p in pts[1:-1]] + [(b, *pts[-1])]
         g.add_edge(wid, tuple(cls), nodes, i0, i1)
+        if rels:
+            g.way_rels[wid] = rels
         if flags & 1:
             stops.add(a)
         if flags & 2:
@@ -186,17 +193,21 @@ def write_archive(ents, bounds, data, path):
     write_pmtiles(head, root, meta, leaves, data, (len(ents),) * 3, path)
 
 
-def write_stations(regions_dir, stops, path):
+def write_stations(regions_dir, stops, relations, path, relations_path):
     """The station file of the regions' station sidecars, merged as the
-    map's join merges them, with the graphs' stop positions."""
+    map's join merges them, with the graphs' stop positions and the
+    relations merged across regions, whose ends rank the stations; and the
+    relation file numbering the same stations."""
     lists = []
     for sc in sorted(glob.glob(os.path.join(regions_dir, "**", "*.stations.geojsonseq"), recursive=True)):
         with open(sc, encoding="utf-8") as f:
             lists.append([json.loads(line) for line in f if line.strip()])
     features = ST.merge(lists)
+    stops = {sid: sorted(ids) for sid, ids in stops.items()}
     with open(path, "wb") as f:
-        f.write(zstd.compress(G.station_file(features, {sid: sorted(ids) for sid, ids in stops.items()}),
-                              level=LEVEL))
+        f.write(zstd.compress(G.station_file(features, stops, relations), level=LEVEL))
+    with open(relations_path, "wb") as f:
+        f.write(zstd.compress(G.relation_file(features, stops, relations), level=LEVEL))
     return sum(1 for f in features if f["properties"]["kind"] in G.TRAIN_STATIONS)
 
 
@@ -218,10 +229,11 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
     graph_path = os.path.join(out_dir, f"track-graph-{tag}.rltg.pmtiles")
     stations_path = os.path.join(out_dir, f"track-stations-{tag}.rlts.zst")
+    relations_path = os.path.join(out_dir, f"track-relations-{tag}.rltr.zst")
     ents, bounds, junctions, edges, stale = [], [], 0, 0, 0
     with tempfile.TemporaryDirectory(prefix="graph-") as tmp, tempfile.TemporaryFile(dir=tmp) as data, \
             ProcessPoolExecutor() as ex:
-        buckets, stops = split(sidecars, tmp)
+        buckets, stops, relations = split(sidecars, tmp)
         tiles = Spill(lambda t: os.path.join(tmp, f"{t[0]}_{t[1]}.jsonl"))
         for out, old in ex.map(bucket, buckets, buffersize=os.cpu_count()):
             stale += old
@@ -241,12 +253,13 @@ def main():
         if not ents:
             sys.exit("no track in the graph sidecars")
         write_archive(ents, bounds, data, graph_path)
-    stations = write_stations(regions_dir, stops, stations_path)
+    stations = write_stations(regions_dir, stops, relations, stations_path, relations_path)
     if stale:
         print(f"track graph: {stale} way copies older than another region's", file=sys.stderr)
     print(f"track graph: {len(sidecars)} regions, {len(ents)} chunks, {junctions:,} junctions and "
           f"{edges:,} edges counted per chunk, {stations:,} stations; "
-          f"{os.path.getsize(graph_path) / 1e6:.1f} MB + {os.path.getsize(stations_path) / 1e6:.1f} MB",
+          f"{os.path.getsize(graph_path) / 1e6:.1f} MB + {os.path.getsize(stations_path) / 1e6:.1f} MB + "
+          f"{os.path.getsize(relations_path) / 1e6:.1f} MB relations",
           file=sys.stderr)
 
 

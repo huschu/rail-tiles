@@ -65,39 +65,11 @@ class Calls(unittest.TestCase):
         self.assertEqual(S.calls(rels, self.stations, self.stops), {})
 
 
-class Links(unittest.TestCase):
-    def setUp(self):
-        self.stations = {f"n{i}": station(f"n{i}", 0.01 * i, 0) for i in range(1, 6)}
-        self.stops = {}
-
-    def test_trains_between_the_same_ends_are_one_line_however_many_are_mapped(self):
-        rels = [rel(str(100 + k), {"route": "train", "ref": str(k)},
-                    [("n1", "stop"), ("n2", "stop"), ("n3", "stop")][::1 if k % 2 else -1])
-                for k in range(30)]
-        lines, _ = S.links(rels, self.stations, self.stops)
-        self.assertEqual(lines["n2"], {"n1|n3"})
-
-    def test_a_terminus_counts_every_line_ending_there(self):
-        rels = [rel("100", {"route": "train"}, [("n1", "stop"), ("n2", "stop"), ("n3", "stop")]),
-                rel("101", {"route": "train"}, [("n1", "stop"), ("n2", "stop"), ("n4", "stop")]),
-                rel("102", {"route": "train"}, [("n1", "stop"), ("n5", "stop")])]
-        lines, _ = S.links(rels, self.stations, self.stops)
-        self.assertEqual(len(lines["n1"]), 3)
-        self.assertEqual(len(lines["n2"]), 2)
-
-    def test_platforms_count_only_when_a_route_lists_no_stops(self):
-        # Every stop, then every platform: the platforms would end the line
-        # where it began.
-        rels = [rel("100", {"route": "train"}, [("n1", "stop"), ("n2", "stop"), ("n3", "stop"),
-                                                ("n1", "platform"), ("n2", "platform"), ("n3", "platform")]),
-                rel("101", {"route": "train"}, [("n4", "platform"), ("n5", "platform")])]
-        lines, _ = S.links(rels, self.stations, self.stops)
-        self.assertEqual(lines["n2"], {"n1|n3"})
-        self.assertEqual(lines["n4"], {"n4|n5"})
-
+class StopAreas(unittest.TestCase):
     def test_a_station_knows_its_stop_areas(self):
+        stations = {"n1": station("n1", 0.01, 0), "n2": station("n2", 0.02, 0)}
         rels = [rel("77", {"public_transport": "stop_area"}, [("n1", ""), ("n2", "")])]
-        _, areas = S.links(rels, self.stations, self.stops)
+        areas = S.stop_areas(rels, stations, {})
         self.assertEqual((areas["n1"], areas["n2"]), ({"77"}, {"77"}))
 
 
@@ -140,12 +112,12 @@ class Merge(unittest.TestCase):
             ["train", "IC 3", 0xE4013A, "SBB", [1, 2, 3]],
         ])
 
-    def test_a_border_station_keeps_the_lines_and_stop_areas_of_both(self):
+    def test_a_border_station_keeps_the_stop_areas_of_both(self):
         swiss, german = self.feature("n1", 9, []), self.feature("n1", 12, [])
-        swiss["properties"].update({"lines": ["n1|n5"], "areas": ["10"]})
-        german["properties"].update({"lines": ["n1|n5", "n1|n7"], "areas": ["9"]})
+        swiss["properties"]["areas"] = ["10"]
+        german["properties"]["areas"] = ["9", "10"]
         (got,) = S.merge([[swiss], [german]])
-        self.assertEqual((got["properties"]["lines"], got["properties"]["areas"]), (["n1|n5", "n1|n7"], ["9", "10"]))
+        self.assertEqual(got["properties"]["areas"], ["9", "10"])
 
 
 class AreaDuplicates(unittest.TestCase):

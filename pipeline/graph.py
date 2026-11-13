@@ -51,6 +51,13 @@ One zstd frame of columns; v is an unsigned LEB128 varint, z a zigzag one:
       before; P x v length (dm); P x v class
   outline, edge after edge, between a and b and without them: V x z lon,
       V x z lat, each less the vertex before, a's position first
+  relations running over the chunk's pieces (LINE_ROUTES): v count R, R x v
+      relation id less the one before; v count of sets S, each set a v count
+      and v indexes into the relations, each less the one before; P x v
+      piece's set (0 none, else 1 + its index)
+
+The relations let a trip follow a picked service and the app list a
+track's services and lines without the OSM API.
 
 Stations go in a file of their own (station_file), so the app finds a
 station by name before it loads the graph around it:
@@ -80,6 +87,16 @@ station by name before it loads the graph around it:
             (TRAIN_STATIONS), with or without stop positions on track
   W:        a varint count, then varint indexes into words
 
+The relations go in a third file (relation_file), which only a track's or a
+service's sheet needs, so the station search does not download them:
+
+  "RLTR", u32 version, v count R
+  relations (LINE_ROUTES), sorted by id: v id less the one before, u8 route
+            (LINE_ROUTES index), v-prefixed ref, name, from, to, operator
+            and network, v colour (0 none, else 1 + 0xRRGGBB), v count K
+            and K x v indexes, into the station file's stations, of the
+            stations it calls at in route order (station_calls)
+
 The app picks the name to show by the reader's language, so the file says
 for every name whether it holds the town and which words find it.
 
@@ -89,7 +106,7 @@ also one zstd frame. Names, positions and services are the map's stations
 CI builds the graph per region and writes a sidecar instead (--sidecar),
 which graph_join.py merges across regions and cuts into chunks.
 
-Usage: graph.py IN-rail.osm.pbf OUT.rltg.zst OUT.rlts.zst
+Usage: graph.py IN-rail.osm.pbf OUT.rltg.zst OUT.rlts.zst [OUT.rltr.zst]
        graph.py --sidecar IN-rail.osm.pbf OUT.graph.jsonl.zst
 """
 import json
@@ -213,6 +230,7 @@ class Graph:
         self.way_nodes = {}         # way id -> array of its node ids
         self.truncated = set()      # ways cut short at a node without a location
         self.pieces = {}            # edge -> [(way, length, class)] where it covers several ways
+        self.way_rels = {}          # way id -> sorted LINE_ROUTES relation ids running over it
 
     def _junction(self, nid, lon, lat):
         j = self.node_index.get(nid)
@@ -332,7 +350,77 @@ def build(lines):
         if j is not None:
             g.stop[j] = True
             g.stop_tags[nid] = tags
+    way_rels = {}
+    for r in g.relations:
+        if r["tags"].get("route") in LINE_ROUTES:
+            for w in r["ways"]:
+                if int(w[1:]) in g.version:
+                    way_rels.setdefault(int(w[1:]), set()).add(int(r["rid"]))
+    g.way_rels = {w: sorted(rs) for w, rs in way_rels.items()}
     return g
+
+
+def relation_rows(g):
+    """The LINE_ROUTES relations of g: {id, route, ref, name, from, to,
+    operator, network, colour, stops (node ids of the stop positions in
+    route order)}. Every region lists a relation's members whole, so its
+    stops are the same in every region's copy."""
+    rows = []
+    for r in g.relations:
+        tags = r["tags"]
+        route = tags.get("route")
+        if route not in LINE_ROUTES:
+            continue
+        rows.append({"id": int(r["rid"]), "route": route,
+                     **{k: (tags.get(k) or "").strip() for k in ("ref", "name", "from", "to", "operator", "network")},
+                     "colour": routes.colour.parse(tags.get("colour") or tags.get("color")),
+                     "stops": [int(nid) for nid, role in r["nodes"] if role.startswith("stop")]})
+    return rows
+
+
+def merge_relations(rows):
+    """One row per relation from the regions' copies."""
+    return [r for _, r in sorted({r["id"]: r for r in rows}.items())]
+
+
+def _station_of(stops):
+    at = {}
+    for sid, nodes in stops.items():
+        for nid in nodes:
+            at.setdefault(nid, []).append(sid)
+    return at
+
+
+def station_calls(relation, at):
+    """The stations a relation calls at in route order, once in a row:
+    those holding its stop positions; at is _station_of the stops."""
+    seq = []
+    for nid in relation["stops"]:
+        for sid in sorted(at.get(nid, ())):
+            if not seq or seq[-1] != sid:
+                seq.append(sid)
+    return seq
+
+
+def station_lines(relations, stops):
+    """{station id: number of lines calling at it}: a line is the trains
+    between the same two end stations, either way, however many route
+    relations map them, so a halt keeps its one line while a terminus
+    counts every line ending there. The ends are the first and last stop
+    positions a station holds; stops is {station id: [stop node ids]}."""
+    at = _station_of(stops)
+    lines = {}
+    for r in relations:
+        if r["route"] not in TRAIN_ROUTES:
+            continue
+        seq = [at[nid] for nid in r["stops"] if nid in at]
+        if len(seq) < 2:
+            continue
+        ends = "|".join(sorted({min(seq[0]), min(seq[-1])}))
+        for sids in seq:
+            for sid in sids:
+                lines.setdefault(sid, set()).add(ends)
+    return lines
 
 
 # Which station kinds a train on track of this kind stops at.
@@ -416,12 +504,16 @@ def _track_beside(g, stations):
     return {sid: junction[ek] for sid, ek in picked.items()}
 
 
-VERSION = 5
+VERSION = 6
 STATIONS_VERSION = 6
+RELATIONS_VERSION = 1
+# The relations the graph and the station file carry: services a trip may
+# follow, and the lines (infrastructure) a track sheet names.
+LINE_ROUTES = ("train", "light_rail", "railway")
 
 # A town's kind in the station file; 0 for none.
 PLACE_RANK = {"city": 1, "town": 2, "village": 3}
-SIDECAR_VERSION = 4
+SIDECAR_VERSION = 5
 
 # Station kinds the app finds trips between.
 TRAIN_STATIONS = ("train", "light_rail")
@@ -587,6 +679,21 @@ def encode(g):
             x, y = _e7(lon), _e7(lat)
     b += _column(lons, _zigzag)
     b += _column(lats, _zigzag)
+    piece_rels = [tuple(g.way_rels.get(p[0], ())) for r in rows for p in r[5]]
+    rids = sorted({rid for rs in piece_rels for rid in rs})
+    rindex = {rid: i for i, rid in enumerate(rids)}
+    sets, set_index = [], {(): 0}
+    for rs in piece_rels:
+        if rs not in set_index:
+            set_index[rs] = len(sets) + 1
+            sets.append(rs)
+    _varint(b, len(rids))
+    b += _column(deltas(rids))
+    _varint(b, len(sets))
+    for rs in sets:
+        _varint(b, len(rs))
+        b += _column(deltas([rindex[rid] for rid in rs]))
+    b += _column(set_index[rs] for rs in piece_rels)
     return bytes(b)
 
 
@@ -708,11 +815,17 @@ def station_groups(listed):
     return [number.get(r, 0) for r in roots]
 
 
-def station_file(features, stops):
-    """The uncompressed station file of the map's station features and
-    {station id: [stop node ids]}."""
-    listed = sorted((f for f in features if f["properties"]["kind"] in TRAIN_STATIONS),
-                    key=lambda f: f["properties"]["osm_id"])
+def _listed(features):
+    """The station features the station file lists, in its order."""
+    return sorted((f for f in features if f["properties"]["kind"] in TRAIN_STATIONS),
+                  key=lambda f: f["properties"]["osm_id"])
+
+
+def station_file(features, stops, relations=()):
+    """The uncompressed station file of the map's station features,
+    {station id: [stop node ids]} and the relations (relation_rows), whose
+    lines rank the stations."""
+    listed = _listed(features)
     towns, town_index = _Parts(), {}
     for f in listed:
         t = f["properties"].get("town")
@@ -735,7 +848,8 @@ def station_file(features, stops):
     for f, g in zip(listed, groups):
         if g:
             members.setdefault(g, []).append(f)
-    lines = [len(set().union(*(m["properties"].get("lines", []) for m in (members[g] if g else [f]))))
+    by_station = station_lines(relations, stops)
+    lines = [len(set().union(*(by_station.get(m["properties"]["osm_id"], ()) for m in (members[g] if g else [f]))))
              for f, g in zip(listed, groups)]
     for k, f in enumerate(listed):
         p = f["properties"]
@@ -773,6 +887,31 @@ def station_file(features, stops):
     return bytes(out)
 
 
+def relation_file(features, stops, relations):
+    """The uncompressed relation file: the relations (relation_rows) with
+    the stations they call at, as the station file of the same features and
+    stops numbers them."""
+    number = {f["properties"]["osm_id"]: k for k, f in enumerate(_listed(features))}
+    at = _station_of(stops)
+    out = bytearray(b"RLTR") + struct.pack("<I", RELATIONS_VERSION)
+    _varint(out, len(relations))
+    before = 0
+    for r in sorted(relations, key=lambda r: r["id"]):
+        _varint(out, r["id"] - before)
+        before = r["id"]
+        out.append(LINE_ROUTES.index(r["route"]))
+        for k in ("ref", "name", "from", "to", "operator", "network"):
+            text = r[k].encode()[:65535]
+            _varint(out, len(text))
+            out += text
+        _varint(out, 0 if r["colour"] is None else r["colour"] + 1)
+        calls = [number[sid] for sid in station_calls(r, at) if sid in number]
+        _varint(out, len(calls))
+        for k in calls:
+            _varint(out, k)
+    return bytes(out)
+
+
 # Chunks are tiles at this zoom: about 100 km across in central Europe.
 CHUNK_ZOOM = 8
 
@@ -799,12 +938,14 @@ def sidecar(g, table, path):
     cuts. A way line is [way id, OSM version, class, lons, lats (1e-7),
     node ids, cuts, stops], with lons, lats and node ids as deltas: cuts
     are the node ids it is cut at here, stops those that are stop
-    positions. Cuts go by node id, so they still apply
+    positions, and rels the LINE_ROUTES relations running over it. Cuts go
+    by node id, so they still apply
     to another region's newer version of the way. A way cut short at a node
     without a location has no cut where it was cut short.
 
     A station line is ["stops", station id, [node ids of its stop
-    positions]]. The first line is ["sidecar", SIDECAR_VERSION]."""
+    positions]], a relation line ["relation", relation_rows row]. The first
+    line is ["sidecar", SIDECAR_VERSION]."""
     pieces = {}
     for e in range(g.edge_count):
         pieces.setdefault(g.way[e], []).append(e)
@@ -834,9 +975,11 @@ def sidecar(g, table, path):
         e = es[0]
         cls = list(g.cls[e])
         line([wid, g.version[wid], cls, deltas(lons), deltas(lats), deltas(nids), [g.node_id[j] for j in cuts],
-              [g.node_id[j] for j in cuts if g.stop[j]]])
+              [g.node_id[j] for j in cuts if g.stop[j]], g.way_rels.get(wid, [])])
     for sid, js in table.items():
         line(["stops", sid, sorted(g.node_id[j] for j in js)])
+    for row in relation_rows(g):
+        line(["relation", row])
     out.close()
     if proc.wait() != 0:
         raise RuntimeError(f"zstd failed writing {path}")
@@ -845,20 +988,23 @@ def sidecar(g, table, path):
 def main():
     args = sys.argv[1:]
     side = args[:1] == ["--sidecar"]
-    if len(args) != 3:
-        sys.exit("usage: graph.py IN-rail.osm.pbf OUT.rltg.zst OUT.rlts.zst\n"
+    if len(args) not in (3, 4) or side and len(args) != 3:
+        sys.exit("usage: graph.py IN-rail.osm.pbf OUT.rltg.zst OUT.rlts.zst [OUT.rltr.zst]\n"
                  "       graph.py --sidecar IN-rail.osm.pbf OUT.graph.jsonl.zst")
     g = build(read_opl(args[1 if side else 0]))
     if side:
         sidecar(g, station_stops(g, args[1]), args[2])
         size = ""
     else:
-        pbf, graph_out, stations_out = args
+        pbf, graph_out, stations_out = args[:3]
         table = station_stops(g, pbf)
         raw = encode(g)
         write(raw, graph_out)
         stops = {sid: sorted(g.node_id[j] for j in js) for sid, js in table.items()}
-        write(station_file(ST.features(pbf, routes.read_opl(pbf)), stops), stations_out)
+        features, rows = ST.features(pbf, routes.read_opl(pbf)), relation_rows(g)
+        write(station_file(features, stops, rows), stations_out)
+        if len(args) == 4:
+            write(relation_file(features, stops, rows), args[3])
         size = f"; {len(raw) / 1e6:.1f} MB raw"
     print(f"{len(g.node_id)} junctions, {g.edge_count} edges, {len(g.version)} ways{size}")
 

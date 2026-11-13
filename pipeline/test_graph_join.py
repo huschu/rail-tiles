@@ -21,8 +21,12 @@ RAIL = ["rail", None, "main", None, 160]
 
 def add_chain(g, start, end, pieces, outline, heads):
     """An edge of the file (encode): its ends (node id, lon, lat), pieces
-    [(way, length, class)], outline [(lon, lat)] from end to end and
-    headings leaving each end."""
+    [(way, length, class, relations)], outline [(lon, lat)] from end to end
+    and headings leaving each end."""
+    for way, _, _, rels in pieces:
+        if rels:
+            g.way_rels[way] = list(rels)
+    pieces = [p[:3] for p in pieces]
     e = len(g.way)
     a, b = g._junction(*start), g._junction(*end)
     g.way.append(pieces[0][0])
@@ -98,10 +102,15 @@ def decode(raw):
     ways = list(accumulate(r.column(p, True)))
     lengths, piece_class = r.column(p), r.column(p)
     dlon, dlat = r.column(v, True), r.column(v, True)
+    rids = list(accumulate(r.column(r.varint())))
+    sets = [()]
+    for _ in range(r.varint()):
+        sets.append(tuple(rids[i] for i in accumulate(r.column(r.varint()))))
+    piece_rels = [sets[i] for i in r.column(p)]
     junctions = {nid[j]: (lon[j] / 1e7, lat[j] / 1e7, bool(flags[j])) for j in range(n)}
     edges, q, k = [], 0, 0
     for i in range(e):
-        pieces = [(ways[x], lengths[x] / 10, classes[piece_class[x]]) for x in range(q, q + piece_count[i])]
+        pieces = [(ways[x], lengths[x] / 10, classes[piece_class[x]], piece_rels[x]) for x in range(q, q + piece_count[i])]
         q += piece_count[i]
         x, y = lon[a[i]], lat[a[i]]
         outline = [(lon[a[i]] / 1e7, lat[a[i]] / 1e7)]
@@ -139,10 +148,10 @@ def load(path):
     return g
 
 
-def copy(lons, lat, nids, cuts, stops=(), version=1):
+def copy(lons, lat, nids, cuts, stops=(), version=1, rels=()):
     """A region's copy of a way, as way_edges takes it."""
     return (version, RAIL, [round(x * 1e7) for x in lons], [round(lat * 1e7)] * len(lons),
-            nids, cuts, list(stops))
+            nids, cuts, list(stops), list(rels))
 
 
 def ranges(edges):
@@ -156,8 +165,8 @@ def bucket(lines):
 
 
 def way_line(wid, c):
-    version, cls, lons, lats, nids, cuts, stops = c
-    return json.dumps([wid, version, cls, G.deltas(lons), G.deltas(lats), G.deltas(nids), cuts, stops]) + "\n"
+    version, cls, lons, lats, nids, cuts, stops, rels = c
+    return json.dumps([wid, version, cls, G.deltas(lons), G.deltas(lats), G.deltas(nids), cuts, stops, rels]) + "\n"
 
 
 class WayEdges(unittest.TestCase):
@@ -167,7 +176,7 @@ class WayEdges(unittest.TestCase):
     def test_a_way_is_cut_wherever_any_region_cut_it(self):
         here = copy(self.LONS, 50.0, self.NIDS, [1, 5])
         neighbour = copy(self.LONS, 50.0, self.NIDS, [1, 3, 5], stops=[3])  # its branch meets the way at node 3
-        _, edges, stale = J.way_edges([here, neighbour])
+        _, edges, stale, _ = J.way_edges([here, neighbour])
         self.assertEqual(ranges(edges), [(0, 2), (2, 4)])
         self.assertEqual([e[4] for e in edges], [2, 1])
         self.assertEqual(stale, 0)
@@ -176,7 +185,7 @@ class WayEdges(unittest.TestCase):
         # The older version had no node 2, so its cut at node 4 sat at index 2.
         new = copy(self.LONS, 50.0, self.NIDS, [1, 5], version=4)
         old = copy([10.0, 10.02, 10.03, 10.04], 50.0, [1, 3, 4, 5], [1, 4, 5], version=3)
-        _, edges, stale = J.way_edges([new, old])
+        _, edges, stale, _ = J.way_edges([new, old])
         self.assertEqual(ranges(edges), [(0, 3), (3, 4)])
         self.assertEqual(stale, 1)
 
@@ -184,7 +193,7 @@ class WayEdges(unittest.TestCase):
         whole = copy(self.LONS, 50.0, self.NIDS, [1, 5])
         # Another region holds the way up to node 3 only, with a branch at node 2.
         short = copy(self.LONS[:3], 50.0, self.NIDS[:3], [1, 2])
-        _, edges, _ = J.way_edges([short, whole])
+        _, edges, _, _ = J.way_edges([short, whole])
         self.assertEqual(ranges(edges), [(0, 1), (1, 4)])
 
     def test_an_edge_between_chunks_goes_to_both(self):
@@ -199,15 +208,22 @@ class WayEdges(unittest.TestCase):
 class Stations(unittest.TestCase):
     def test_the_station_file_lists_train_stations_with_their_stops(self):
         feats = [{"properties": {"osm_id": "n2", "kind": "train", "name": "Basel SBB", "routes": '[["train"]]',
-                                 "names": [["fr", "Bâle CFF"]], "lines": ["n2|n5"]},
+                                 "names": [["fr", "Bâle CFF"]]},
                   "geometry": {"coordinates": [7.5895, 47.5474]}},
                  {"properties": {"osm_id": "n1", "kind": "tram", "name": "Bankverein"},
                   "geometry": {"coordinates": [7.59, 47.55]}}]
         feats[0]["properties"]["town"] = {"id": "n9", "name": "Basel", "names": [["fr", "Bâle"]],
                                           "place": "city", "population": 177000}
-        raw = G.station_file(feats, {"n2": [10, 11], "n1": [12]})
+        line = {"id": 4, "route": "train", "ref": "IR 36", "name": "IR 36: Basel => Zürich", "from": "Basel",
+                "to": "Zürich", "operator": "SBB", "network": "", "colour": 0xE4013A, "stops": [10, 20]}
+        raw = G.station_file(feats, {"n2": [10, 11], "n1": [12], "n5": [20]}, [line])
         self.assertEqual(raw[:4], b"RLTS")
         version, towns, stations = decode_stations(raw)
+        # It calls at n2, the file's only station; n5 is not listed.
+        relations_version, relations = decode_relations(
+            G.relation_file(feats, {"n2": [10, 11], "n1": [12], "n5": [20]}, [line]))
+        self.assertEqual(relations_version, G.RELATIONS_VERSION)
+        self.assertEqual(relations, [{**{k: v for k, v in line.items() if k != "stops"}, "calls": [0]}])
         self.assertEqual(version, G.STATIONS_VERSION)
         self.assertEqual(towns, [{"name": "Basel", "others": [("fr", "Bâle")], "rank": 1, "population": 177000,
                                   "words": [["basel"], ["bale"]]}])
@@ -225,15 +241,22 @@ class Stations(unittest.TestCase):
         def feat(sid, name, lon, lat, **props):
             return {"properties": {"osm_id": sid, "kind": "train", "name": name, "town": berlin, **props},
                     "geometry": {"coordinates": [lon, lat]}}
-        feats = [feat("n1", "Berlin Hauptbahnhof", 13.3695, 52.5251, lines=["n10|n11", "n10|n12"]),
-                 feat("n2", "Berlin Hauptbahnhof (tief)", 13.3694, 52.5249, lines=["n10|n12", "n13|n14"]),
+        def through(rid, *stops):
+            return {"id": rid, "route": "train", "ref": "", "name": "", "from": "", "to": "", "operator": "",
+                    "network": "", "colour": None, "stops": list(stops)}
+        # Three lines between them, one through both levels.
+        relations = [through(1, 110, 1, 111), through(2, 110, 1, 2, 112), through(3, 113, 2, 114),
+                     through(4, 114, 2, 113)]
+        stops = {"n1": [1], "n2": [2], "n10": [110], "n11": [111], "n12": [112], "n13": [113], "n14": [114]}
+        feats = [feat("n1", "Berlin Hauptbahnhof", 13.3695, 52.5251),
+                 feat("n2", "Berlin Hauptbahnhof (tief)", 13.3694, 52.5249),
                  feat("n3", "Hauptbahnhof", 13.3688, 52.5257),
                  # The same name 6 km off is another station.
                  feat("n4", "Hauptbahnhof", 13.45, 52.53),
                  feat("n5", "Friedrichstraße", 13.3868, 52.5203, areas=["77"]),
                  feat("n6", "Berlin Friedrichstraße (S)", 13.3871, 52.5199, areas=["77"]),
                  feat("n7", "Alexanderplatz", 13.4114, 52.5215)]
-        stations = decode_stations(G.station_file(feats, {}))[2]
+        stations = decode_stations(G.station_file(feats, stops, relations))[2]
         groups = [s["group"] for s in stations]
         # The levels' lines together: three.
         city = 1 + 2 + math.log10(3_850_001) / 2
@@ -323,6 +346,41 @@ def decode_stations(raw):
     return version, towns, stations
 
 
+def decode_relations(raw):
+    """(version, relations) of a relation file, each with the indexes of
+    the stations it calls at as "calls"."""
+    assert raw[:4] == b"RLTR"
+    version = struct.unpack_from("<I", raw, 4)[0]
+    pos = 8
+
+    def varint():
+        nonlocal pos
+        v = shift = 0
+        while True:
+            c = raw[pos]
+            pos += 1
+            v |= (c & 0x7F) << shift
+            if c < 0x80:
+                return v
+            shift += 7
+
+    relations, rid = [], 0
+    for _ in range(varint()):
+        rid += varint()
+        rel = {"id": rid, "route": G.LINE_ROUTES[raw[pos]]}
+        pos += 1
+        for k in ("ref", "name", "from", "to", "operator", "network"):
+            n = varint()
+            rel[k] = raw[pos:pos + n].decode()
+            pos += n
+        colour = varint()
+        rel["colour"] = colour - 1 if colour else None
+        rel["calls"] = [varint() for _ in range(varint())]
+        relations.append(rel)
+    assert pos == len(raw)
+    return version, relations
+
+
 def opl_way(wid, nodes, version=1):
     refs = ",".join(f"n{nid}x{lon}y{lat}" for nid, lon, lat in nodes)
     return f"w{wid} v{version} dV c0 t2026-01-01T00:00:00Z i0 u Trailway=rail,usage=main N{refs}\n"
@@ -343,7 +401,7 @@ class Sidecar(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             side = os.path.join(tmp, "x.graph.jsonl.zst")
             G.sidecar(g, {}, side)
-            buckets, _ = J.split([side], tmp)
+            buckets, _, _ = J.split([side], tmp)
             spill = J.Spill(lambda t: os.path.join(tmp, f"{t[0]}_{t[1]}.jsonl"))
             for path in buckets:
                 for t, lines in J.bucket(path)[0].items():
@@ -361,7 +419,7 @@ class Sidecar(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             side = os.path.join(tmp, "x.graph.jsonl.zst")
             G.sidecar(g, {}, side)
-            buckets, _ = J.split([side], tmp)
+            buckets, _, _ = J.split([side], tmp)
             lines = [l for path in buckets for ls in J.bucket(path)[0].values() for l in ls]
             chunk = os.path.join(tmp, "c.jsonl")
             with open(chunk, "w") as f:
@@ -376,7 +434,56 @@ class Sidecar(unittest.TestCase):
             side = os.path.join(tmp, "old.graph.jsonl.zst")
             with zstd.open(side, "wt") as f:
                 f.write('[[1,2],8,1,["rail",null,null,null,null],[0,1],[0,0],[[0,1,0],[1,2,0]]]\n')
-            self.assertEqual(J.split([side], tmp), ([], {}))
+            self.assertEqual(J.split([side], tmp), ([], {}, []))
+
+
+def opl_relation(rid, tags, members):
+    t = ",".join(f"{k}={v}".replace(" ", "%20%").replace("#", "%23%") for k, v in tags.items())
+    m = ",".join(f"{ref}@{role}" for ref, role in members)
+    return f"r{rid} v1 dV c0 t2026-01-01T00:00:00Z i0 u T{t} M{m}\n"
+
+
+class Relations(unittest.TestCase):
+    LINE = [(1, 10.0, 50.0), (2, 10.01, 50.0), (3, 10.02, 50.0)]
+
+    @unittest.skipUnless(shutil.which("zstd"), "needs the zstd command")
+    def test_a_ways_services_and_lines_reach_the_chunk(self):
+        g = G.build([opl_way(70, self.LINE), opl_way(71, [(3, 10.02, 50.0), (4, 10.03, 50.0)]),
+                     opl_relation(500, {"type": "route", "route": "train", "ref": "RE 1"}, [("w70", ""), ("w71", "")]),
+                     opl_relation(600, {"type": "route", "route": "railway", "ref": "6100"}, [("w70", "")]),
+                     opl_relation(700, {"type": "route", "route": "bus"}, [("w70", "")])])
+        self.assertEqual(g.way_rels, {70: [500, 600], 71: [500]})
+        with tempfile.TemporaryDirectory() as tmp:
+            side = os.path.join(tmp, "x.graph.jsonl.zst")
+            G.sidecar(g, {}, side)
+            buckets, _, relations = J.split([side], tmp)
+            lines = [l for path in buckets for ls in J.bucket(path)[0].values() for l in ls]
+            chunk = os.path.join(tmp, "c.jsonl")
+            with open(chunk, "w") as f:
+                f.writelines(lines)
+            raw = G.encode(J.chunk(chunk))
+        self.assertEqual([r["id"] for r in relations], [500, 600])
+        pieces = {p[0]: p[3] for e in decode(raw)["edges"] for p in e[3]}
+        self.assertEqual(pieces, {70: (500, 600), 71: (500,)})
+
+    def test_a_line_across_regions_counts_once_by_its_true_ends(self):
+        # An ICE through two regions: each lists all its stops, and each
+        # region's graph places the stations of its own.
+        ice = {"id": 9, "route": "train", "ref": "ICE 1", "name": "", "from": "", "to": "", "operator": "",
+               "network": "", "colour": None, "stops": [10, 20, 30]}
+        (merged,) = G.merge_relations([ice, dict(ice)])
+        lines = G.station_lines([merged], {"n1": [10], "n2": [20], "n3": [30]})
+        self.assertEqual(lines, {"n1": {"n1|n3"}, "n2": {"n1|n3"}, "n3": {"n1|n3"}})
+
+    def test_a_relation_row_keeps_its_stops_in_route_order(self):
+        g = G.build([opl_way(70, self.LINE),
+                     opl_relation(500, {"type": "route", "route": "train", "ref": "RE 1", "colour": "#e4013a"},
+                                  [("n3", "stop"), ("w70", ""), ("n9", "stop_exit_only"), ("n1", "stop")])])
+        (row,) = G.relation_rows(g)
+        self.assertEqual(row["stops"], [3, 9, 1])
+        self.assertEqual((row["ref"], row["colour"]), ("RE 1", 0xE4013A))
+        # Two stop positions of one station count once in a row.
+        self.assertEqual(G.station_calls(row, G._station_of({"n1": [3, 9], "n2": [1]})), ["n1", "n2"])
 
 
 class Archive(unittest.TestCase):
