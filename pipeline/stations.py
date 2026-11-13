@@ -32,6 +32,9 @@ import routes
 from geometry import metres
 
 SERVICES = ("train", "subway", "light_rail", "monorail", "funicular", "tram")
+# Lists only the trip planner's station file reads, outside TILE_PROPERTIES:
+# the stations each station's trains stop at next, and its stop areas.
+FILE_ONLY = ("next", "areas")
 MODES = ("train", "subway", "light_rail", "monorail", "funicular")
 KINDS = MODES + ("tram",)
 
@@ -308,12 +311,16 @@ def latin_words(names):
     return search_words(_TO_LATIN.transliterate(names[0]))
 
 
-def importance(kind, routes_json, place_rank, population):
-    """How much the app's search favours a station: each doubling of its
-    services a point, a main-line station a point more, a city two and a
-    town one, and a big town a little more again, so "Paris" finds Paris
-    before a hamlet of that name."""
-    score = math.log2(1 + (routes_json or "").count('["')) + (1 if kind == "train" else 0)
+def importance(kind, neighbours, place_rank, population):
+    """How much the app's search favours a station: each doubling of the
+    stations its trains stop at just before or after it a point, a
+    main-line station a point more, a city two and a town one, and a big
+    town a little more again, so "Paris" finds Paris before a hamlet of that
+    name. A halt has its two neighbours however many trains call; a main
+    station where trains in many directions stop, express and local, has
+    many. Counting services instead put the Maeklong line's halts, with a
+    route relation per train number, before Bangkok's main stations."""
+    score = math.log2(1 + neighbours) + (1 if kind == "train" else 0)
     score += {1: 2, 2: 1}.get(place_rank, 0)
     return score + math.log10(1 + (population or 0)) / 2
 
@@ -402,11 +409,12 @@ def service_title(tags):
     return name or None
 
 
-def calls(relations, stations, stops):
-    """{station id: set of route relation ids} for the services calling at
-    each station."""
+def _places(relations, stations, stops):
+    """A function from a route's stop or platform member to the stations it
+    calls at there, and {station id: stop area relation ids holding it}."""
     grid = _Grid(stations.values())
     by_member = defaultdict(set)              # member ref -> station ids
+    areas = defaultdict(set)
     for r in relations:
         if r["tags"].get("public_transport") != "stop_area":
             continue
@@ -421,32 +429,71 @@ def calls(relations, stations, stops):
                 held = [s["id"] for s, _ in grid.near(lon, lat, NEAR_M)[:1]]
         for m, _ in r["members"]:
             by_member[m].update(held)
+        for s in held:
+            areas[s].add(r["rid"])
     for sid in stations:
         by_member[sid].add(sid)
 
+    def place(route, member):
+        accepts = _SERVES[route]
+        held = by_member.get(member)
+        if held:
+            fit = {s for s in held if stations[s]["kind"] in accepts}
+            return fit or held
+        if member in stops:
+            lon, lat = stops[member]
+            for s, _ in grid.near(lon, lat, NEAR_M):
+                if s["kind"] in accepts:
+                    return {s["id"]}
+        return set()
+    return place, areas
+
+
+def calls(relations, stations, stops):
+    """{station id: set of route relation ids} for the services calling at
+    each station."""
+    place, _ = _places(relations, stations, stops)
     out = defaultdict(set)
     for r in relations:
         route = r["tags"].get("route")
         if route not in SERVICES:
             continue
-        accepts = _SERVES[route]
         hit = set()
         for m, role in r["members"]:
-            if not (role.startswith("stop") or role.startswith("platform")):
-                continue
-            held = by_member.get(m)
-            if held:
-                fit = {s for s in held if stations[s]["kind"] in accepts}
-                hit |= fit or held
-            elif m in stops:
-                lon, lat = stops[m]
-                for s, _ in grid.near(lon, lat, NEAR_M):
-                    if s["kind"] in accepts:
-                        hit.add(s["id"])
-                        break
+            if role.startswith("stop") or role.startswith("platform"):
+                hit |= place(route, m)
         for s in hit:
             out[s].add(r["rid"])
     return out
+
+
+def links(relations, stations, stops):
+    """{station id: stations a train stops at just before or after it} and
+    {station id: stop area relation ids holding it}.
+
+    A route's stops are read in member order; the platforms only when it
+    lists no stops, since some routes list every stop and then every
+    platform."""
+    place, areas = _places(relations, stations, stops)
+    nxt = defaultdict(set)
+    for r in relations:
+        route = r["tags"].get("route")
+        if route not in ("train", "light_rail"):
+            continue
+        members = [m for m, role in r["members"] if role.startswith("stop")] or \
+                  [m for m, role in r["members"] if role.startswith("platform")]
+        seq = []
+        for m in members:
+            at = place(route, m)
+            if at and (not seq or at != seq[-1]):
+                seq.append(at)
+        for a, b in zip(seq, seq[1:]):
+            for x in a:
+                for y in b:
+                    if x != y:
+                        nxt[x].add(y)
+                        nxt[y].add(x)
+    return nxt, areas
 
 
 def services(rids, rel_by_id):
@@ -495,6 +542,10 @@ def merge(feature_lists):
                 m["properties"]["name"] = f["properties"]["name"]
             if not m["properties"].get("town") and f["properties"].get("town"):
                 m["properties"]["town"] = f["properties"]["town"]
+            for key in FILE_ONLY:
+                both = set(m["properties"].get(key, [])) | set(f["properties"].get(key, []))
+                if both:
+                    m["properties"][key] = sorted(both, key=_natural)
             names = m["properties"].get("names", []) + [n for n in f["properties"].get("names", [])
                                                          if n not in m["properties"].get("names", [])]
             if names:
@@ -540,6 +591,7 @@ def features(pbf, opl_lines):
     relations = [r for r in (routes.parse_relation(l) for l in opl_lines) if r is not None]
     rel_by_id = {r["rid"]: r for r in relations}
     served = calls(relations, stations, stops)
+    nxt, areas = links(relations, stations, stops)
     out = []
     for sid, s in stations.items():
         entries = services(served.get(sid, ()), rel_by_id)
@@ -555,6 +607,10 @@ def features(pbf, opl_lines):
             props["town"] = {k: town[k] for k in ("id", "name", "names", "place", "population") if town[k]}
         if entries:
             props["routes"] = json.dumps(entries, ensure_ascii=False, separators=(",", ":"))
+        if nxt.get(sid):
+            props["next"] = sorted(nxt[sid])
+        if areas.get(sid):
+            props["areas"] = sorted(areas[sid], key=int)
         if s["kind"] == "train" and not s["halt"]:
             minzoom = STATION_MIN_ZOOM
         elif s["kind"] == "tram":

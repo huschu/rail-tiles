@@ -199,7 +199,7 @@ class WayEdges(unittest.TestCase):
 class Stations(unittest.TestCase):
     def test_the_station_file_lists_train_stations_with_their_stops(self):
         feats = [{"properties": {"osm_id": "n2", "kind": "train", "name": "Basel SBB", "routes": '[["train"]]',
-                                 "names": [["fr", "Bâle CFF"]]},
+                                 "names": [["fr", "Bâle CFF"]], "next": ["n5"]},
                   "geometry": {"coordinates": [7.5895, 47.5474]}},
                  {"properties": {"osm_id": "n1", "kind": "tram", "name": "Bankverein"},
                   "geometry": {"coordinates": [7.59, 47.55]}}]
@@ -217,7 +217,34 @@ class Stations(unittest.TestCase):
         self.assertEqual(station, {"id": "n2", "name": "Basel SBB", "others": [("fr", "Bâle CFF")], "kind": "train",
                                    "lon": 75895000, "lat": 475474000, "stops": [10, 11], "routes": '[["train"]]',
                                    "town": 0, "holds_town": [1, 1], "words": [["basel", "sbb"], ["bale", "cff"]],
-                                   "latin": []})
+                                   "latin": [], "group": 0})
+
+    def test_a_station_of_one_name_nearby_or_in_one_stop_area_is_one_group(self):
+        berlin = {"id": "n9", "name": "Berlin", "place": "city", "population": 3_850_000}
+
+        def feat(sid, name, lon, lat, **props):
+            return {"properties": {"osm_id": sid, "kind": "train", "name": name, "town": berlin, **props},
+                    "geometry": {"coordinates": [lon, lat]}}
+        feats = [feat("n1", "Berlin Hauptbahnhof", 13.3695, 52.5251, next=["n10", "n11"]),
+                 feat("n2", "Berlin Hauptbahnhof (tief)", 13.3694, 52.5249, next=["n1", "n12"]),
+                 feat("n3", "Hauptbahnhof", 13.3688, 52.5257),
+                 # The same name 6 km off is another station.
+                 feat("n4", "Hauptbahnhof", 13.45, 52.53),
+                 feat("n5", "Friedrichstraße", 13.3868, 52.5203, areas=["77"]),
+                 feat("n6", "Berlin Friedrichstraße (S)", 13.3871, 52.5199, areas=["77"]),
+                 feat("n7", "Alexanderplatz", 13.4114, 52.5215)]
+        stations = decode_stations(G.station_file(feats, {}))[2]
+        groups = [s["group"] for s in stations]
+        # The levels' neighbours together, less each other: three.
+        city = 1 + 2 + math.log10(3_850_001) / 2
+        self.assertAlmostEqual(stations[0]["importance"], 2 + city, places=4)
+        self.assertAlmostEqual(stations[1]["importance"], 2 + city, places=4)
+        self.assertEqual(groups[0], groups[1])
+        self.assertEqual(groups[0], groups[2])
+        self.assertEqual(groups[4], groups[5])
+        self.assertNotEqual(groups[0], groups[4])
+        self.assertEqual((groups[3], groups[6]), (0, 0))
+        self.assertTrue(all(groups[i] for i in (0, 1, 2, 4, 5)))
 
     @unittest.skipUnless(importlib.util.find_spec("icu"), "needs PyICU")
     def test_a_station_named_only_in_another_script_carries_its_latin_spelling(self):
@@ -290,6 +317,7 @@ def decode_stations(raw):
         pos += n
         s["words"] = [words() for _ in range(n)]
         s["latin"] = words()
+        s["group"] = varint()
         stations.append(s)
     assert pos == len(raw)
     return version, towns, stations

@@ -72,10 +72,12 @@ station by name before it loads the graph around it:
             i32 lon, i32 lat (1e-7 degrees), u16 count, i64 node ids of its
             stop positions, u32-prefixed services as the tiles' `routes`
             JSON, u32 town index (0xFFFFFFFF for none), f32 importance
-            (stations.importance), u8 per name, the name first, 1 when it
+            (stations.importance, its group's neighbours counted
+            together), u8 per name, the name first, 1 when it
             already says the town (stations.names_town), words W of each
             name, the name first, then words W of its Latin spelling
-            (stations.latin_words); every station a train stops at
+            (stations.latin_words), then a varint group (station_groups),
+            0 for a station alone; every station a train stops at
             (TRAIN_STATIONS), with or without stop positions on track
   W:        a varint count, then varint indexes into words
 
@@ -93,6 +95,7 @@ Usage: graph.py IN-rail.osm.pbf OUT.rltg.zst OUT.rlts.zst
 """
 import json
 import math
+import re
 import struct
 import subprocess
 import sys
@@ -415,7 +418,7 @@ def _track_beside(g, stations):
 
 
 VERSION = 5
-STATIONS_VERSION = 5
+STATIONS_VERSION = 6
 
 # A town's kind in the station file; 0 for none.
 PLACE_RANK = {"city": 1, "town": 2, "village": 3}
@@ -645,11 +648,73 @@ def _put_vocabulary(out, words):
         before = w
 
 
+# Stations of one name are one station this close together.
+GROUP_M = 400.0
+
+
+def _group_key(p):
+    """A station's name with its town in front where it leaves the town out,
+    without a bracketed ending, folded as the search folds it: "Berlin
+    Hauptbahnhof (tief)" and the S-Bahn's "Hauptbahnhof" in Berlin agree."""
+    name = re.sub(r"\s*\([^)]*\)\s*$", "", p.get("name") or "")
+    t = p.get("town")
+    if t and not ST.names_town([name], [t["name"]] + [v for _, v in t.get("names", [])]):
+        name = f"{t['name']} {name}"
+    return " ".join(ST.search_words(name))
+
+
+def station_groups(listed):
+    """Per station feature its group number, 0 for one alone: stations
+    sharing a stop area, or within GROUP_M with the same _group_key, are one
+    station to a traveller, whose trip may start at any of them."""
+    parent = list(range(len(listed)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(i, j):
+        parent[find(i)] = find(j)
+
+    by_area, by_key = {}, {}
+    for i, f in enumerate(listed):
+        for a in f["properties"].get("areas", []):
+            if a in by_area:
+                union(i, by_area[a])
+            by_area.setdefault(a, i)
+        key = _group_key(f["properties"])
+        if key:
+            by_key.setdefault(key, []).append(i)
+    for members in by_key.values():
+        members.sort(key=lambda i: listed[i]["geometry"]["coordinates"][0])
+        for a, i in enumerate(members):
+            lon, lat = listed[i]["geometry"]["coordinates"]
+            reach = GROUP_M / (111320 * max(math.cos(math.radians(lat)), 0.01))
+            for j in members[a + 1:]:
+                lon2, lat2 = listed[j]["geometry"]["coordinates"]
+                if lon2 - lon > reach:
+                    break
+                if metres(lon, lat, lon2, lat2) <= GROUP_M:
+                    union(i, j)
+    roots = [find(i) for i in range(len(listed))]
+    sizes = {}
+    for r in roots:
+        sizes[r] = sizes.get(r, 0) + 1
+    number = {}
+    for r in roots:
+        if sizes[r] > 1 and r not in number:
+            number[r] = len(number) + 1
+    return [number.get(r, 0) for r in roots]
+
+
 def station_file(features, stops):
     """The uncompressed station file of the map's station features and
     {station id: [stop node ids]}."""
     listed = sorted((f for f in features if f["properties"]["kind"] in TRAIN_STATIONS),
                     key=lambda f: f["properties"]["osm_id"])
+    by_id = {f["properties"]["osm_id"]: f for f in listed}
     towns, town_index = _Parts(), {}
     for f in listed:
         t = f["properties"].get("town")
@@ -666,7 +731,22 @@ def station_file(features, stops):
         for n in [t["name"]] + others:
             towns.words(ST.search_words(n))
     b = _Parts()
-    for f in listed:
+    groups = station_groups(listed)
+    # A station's levels and its S-Bahn count as one for importance: Berlin
+    # Hauptbahnhof's upper level alone has 5 neighbours, the whole 11.
+    ids = [f["properties"]["osm_id"] for f in listed]
+    members = {}
+    for sid, g in zip(ids, groups):
+        if g:
+            members.setdefault(g, set()).add(sid)
+    neighbours = []
+    for f, g in zip(listed, groups):
+        if g:
+            near = set().union(*(by_id[m]["properties"].get("next", []) for m in members[g])) - members[g]
+        else:
+            near = set(f["properties"].get("next", []))
+        neighbours.append(len(near))
+    for k, f in enumerate(listed):
         p = f["properties"]
         sid = p["osm_id"]
         lon, lat = f["geometry"]["coordinates"]
@@ -680,13 +760,17 @@ def station_file(features, stops):
         b += struct.pack("<I", len(routes_json)) + routes_json
         t = p.get("town")
         b += struct.pack("<I", town_index[_town_key(t)] if t else 0xFFFFFFFF)
-        b += struct.pack("<f", ST.importance(p["kind"], p.get("routes"), PLACE_RANK.get(t.get("place"), 0) if t else 0,
+        b += struct.pack("<f", ST.importance(p["kind"], neighbours[k],
+                                             PLACE_RANK.get(t.get("place"), 0) if t else 0,
                                              t.get("population") if t else 0))
         town_names = [t["name"]] + [v for _, v in t.get("names", [])] if t else []
         b += bytes(1 if t and ST.names_town([n], town_names) else 0 for n in names)
         for n in names:
             b.words(ST.search_words(n))
         b.words(ST.latin_words(list(dict.fromkeys(names))))
+        group = bytearray()
+        _varint(group, groups[k])
+        b += bytes(group)
     words = sorted(towns.vocabulary() | b.vocabulary())
     out = bytearray(b"RLTS") + struct.pack("<I", STATIONS_VERSION)
     _put_vocabulary(out, words)
