@@ -353,7 +353,7 @@ jobs:
           TAG: ${{ needs.prepare.outputs.tag }}
         run: |
           python3 pipeline/graph_join.py regions out "$TAG" || {
-            rm -f out/track-graph-"$TAG".* out/track-stations-"$TAG".* out/track-relations-"$TAG".*
+            rm -f out/track-graph-"$TAG".* out/track-stations-"$TAG".*
             echo "::warning::track graph failed; the manifest omits it"
           }
 
@@ -425,7 +425,6 @@ jobs:
             --night-trains "out/night-trains-${{ needs.prepare.outputs.tag }}.json.gz" \
             --track-graph "out/track-graph-${{ needs.prepare.outputs.tag }}.rltg.pmtiles" \
             --track-stations "out/track-stations-${{ needs.prepare.outputs.tag }}.rlts.zst" \
-            --track-relations "out/track-relations-${{ needs.prepare.outputs.tag }}.rltr.zst" \
             --out manifest.json
           cat manifest.json
 
@@ -442,7 +441,7 @@ jobs:
           gh release view "$TAG" >/dev/null 2>&1 \
             || gh release create "$TAG" "${PRE[@]}" --title "Planet tiles $TAG" \
                  --notes "OSM railway PMTiles pyramid z2-z16, per-continent. Source as of ${{ steps.join.outputs.osm_ts }}. $ODBL_NOTE"
-          for f in out/*.pmtiles out/*.hashes out/*.changed out/night-trains-*.json.gz out/track-stations-*.rlts.zst out/track-relations-*.rltr.zst; do
+          for f in out/*.pmtiles out/*.hashes out/*.changed out/night-trains-*.json.gz out/track-stations-*.rlts.zst; do
             [ -e "$f" ] || continue
             # uploads.github.com fails single large uploads now and then (a 404 on 2026-10-26).
             for attempt in 1 2 3; do
@@ -488,7 +487,7 @@ jobs:
           mapfile -t OLD < <(gh release list --limit 1000 --json tagName -q '.[].tagName' \
             | grep -E '^[0-9]{8}$' | sort -ru | tail -n +3)
           for t in "${OLD[@]}"; do
-            if [[ "$t" < "$CUTOFF" ]]; then pattern='\.(pmtiles|hashes|rlts\.zst|rltr\.zst)$'; else pattern='\.hashes$'; fi
+            if [[ "$t" < "$CUTOFF" ]]; then pattern='\.(pmtiles|hashes|rlts\.zst)$'; else pattern='\.hashes$'; fi
             gh release view "$t" --json assets -q '.assets[].name' \
               | { grep -E "$pattern" || true; } \
               | while read -r name; do
@@ -507,6 +506,5 @@ jobs:
             out/*.pmtiles
             out/night-trains-*.json.gz
             out/track-stations-*.rlts.zst
-            out/track-relations-*.rltr.zst
             manifest.json
           retention-days: 3

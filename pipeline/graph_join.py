@@ -193,11 +193,10 @@ def write_archive(ents, bounds, data, path):
     write_pmtiles(head, root, meta, leaves, data, (len(ents),) * 3, path)
 
 
-def write_stations(regions_dir, stops, relations, path, relations_path):
+def write_stations(regions_dir, stops, relations, path):
     """The station file of the regions' station sidecars, merged as the
     map's join merges them, with the graphs' stop positions and the
-    relations merged across regions, whose ends rank the stations; and the
-    relation file numbering the same stations."""
+    relations merged across regions, whose ends rank the stations."""
     lists = []
     for sc in sorted(glob.glob(os.path.join(regions_dir, "**", "*.stations.geojsonseq"), recursive=True)):
         with open(sc, encoding="utf-8") as f:
@@ -206,8 +205,6 @@ def write_stations(regions_dir, stops, relations, path, relations_path):
     stops = {sid: sorted(ids) for sid, ids in stops.items()}
     with open(path, "wb") as f:
         f.write(zstd.compress(G.station_file(features, stops, relations), level=LEVEL))
-    with open(relations_path, "wb") as f:
-        f.write(zstd.compress(G.relation_file(features, stops, relations), level=LEVEL))
     return sum(1 for f in features if f["properties"]["kind"] in G.TRAIN_STATIONS)
 
 
@@ -229,7 +226,6 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
     graph_path = os.path.join(out_dir, f"track-graph-{tag}.rltg.pmtiles")
     stations_path = os.path.join(out_dir, f"track-stations-{tag}.rlts.zst")
-    relations_path = os.path.join(out_dir, f"track-relations-{tag}.rltr.zst")
     ents, bounds, junctions, edges, stale = [], [], 0, 0, 0
     with tempfile.TemporaryDirectory(prefix="graph-") as tmp, tempfile.TemporaryFile(dir=tmp) as data, \
             ProcessPoolExecutor() as ex:
@@ -253,13 +249,12 @@ def main():
         if not ents:
             sys.exit("no track in the graph sidecars")
         write_archive(ents, bounds, data, graph_path)
-    stations = write_stations(regions_dir, stops, relations, stations_path, relations_path)
+    stations = write_stations(regions_dir, stops, relations, stations_path)
     if stale:
         print(f"track graph: {stale} way copies older than another region's", file=sys.stderr)
     print(f"track graph: {len(sidecars)} regions, {len(ents)} chunks, {junctions:,} junctions and "
           f"{edges:,} edges counted per chunk, {stations:,} stations; "
-          f"{os.path.getsize(graph_path) / 1e6:.1f} MB + {os.path.getsize(stations_path) / 1e6:.1f} MB + "
-          f"{os.path.getsize(relations_path) / 1e6:.1f} MB relations",
+          f"{os.path.getsize(graph_path) / 1e6:.1f} MB + {os.path.getsize(stations_path) / 1e6:.1f} MB",
           file=sys.stderr)
 
 

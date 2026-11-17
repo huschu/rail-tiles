@@ -219,11 +219,6 @@ class Stations(unittest.TestCase):
         raw = G.station_file(feats, {"n2": [10, 11], "n1": [12], "n5": [20]}, [line])
         self.assertEqual(raw[:4], b"RLTS")
         version, towns, stations = decode_stations(raw)
-        # It calls at n2, the file's only station; n5 is not listed.
-        relations_version, relations = decode_relations(
-            G.relation_file(feats, {"n2": [10, 11], "n1": [12], "n5": [20]}, [line]))
-        self.assertEqual(relations_version, G.RELATIONS_VERSION)
-        self.assertEqual(relations, [{**{k: v for k, v in line.items() if k != "stops"}, "calls": [0]}])
         self.assertEqual(version, G.STATIONS_VERSION)
         self.assertEqual(towns, [{"name": "Basel", "others": [("fr", "Bâle")], "rank": 1, "population": 177000,
                                   "words": [["basel"], ["bale"]]}])
@@ -346,40 +341,6 @@ def decode_stations(raw):
     return version, towns, stations
 
 
-def decode_relations(raw):
-    """(version, relations) of a relation file, each with the indexes of
-    the stations it calls at as "calls"."""
-    assert raw[:4] == b"RLTR"
-    version = struct.unpack_from("<I", raw, 4)[0]
-    pos = 8
-
-    def varint():
-        nonlocal pos
-        v = shift = 0
-        while True:
-            c = raw[pos]
-            pos += 1
-            v |= (c & 0x7F) << shift
-            if c < 0x80:
-                return v
-            shift += 7
-
-    relations, rid = [], 0
-    for _ in range(varint()):
-        rid += varint()
-        rel = {"id": rid, "route": G.LINE_ROUTES[raw[pos]]}
-        pos += 1
-        for k in ("ref", "name", "from", "to", "operator", "network"):
-            n = varint()
-            rel[k] = raw[pos:pos + n].decode()
-            pos += n
-        colour = varint()
-        rel["colour"] = colour - 1 if colour else None
-        rel["calls"] = [varint() for _ in range(varint())]
-        relations.append(rel)
-    assert pos == len(raw)
-    return version, relations
-
 
 def opl_way(wid, nodes, version=1):
     refs = ",".join(f"n{nid}x{lon}y{lat}" for nid, lon, lat in nodes)
@@ -482,8 +443,6 @@ class Relations(unittest.TestCase):
         (row,) = G.relation_rows(g)
         self.assertEqual(row["stops"], [3, 9, 1])
         self.assertEqual((row["ref"], row["colour"]), ("RE 1", 0xE4013A))
-        # Two stop positions of one station count once in a row.
-        self.assertEqual(G.station_calls(row, G._station_of({"n1": [3, 9], "n2": [1]})), ["n1", "n2"])
 
 
 class Archive(unittest.TestCase):

@@ -87,16 +87,6 @@ station by name before it loads the graph around it:
             (TRAIN_STATIONS), with or without stop positions on track
   W:        a varint count, then varint indexes into words
 
-The relations go in a third file (relation_file), which only a track's or a
-service's sheet needs, so the station search does not download them:
-
-  "RLTR", u32 version, v count R
-  relations (LINE_ROUTES), sorted by id: v id less the one before, u8 route
-            (LINE_ROUTES index), v-prefixed ref, name, from, to, operator
-            and network, v colour (0 none, else 1 + 0xRRGGBB), v count K
-            and K x v indexes, into the station file's stations, of the
-            stations it calls at in route order (station_calls)
-
 The app picks the name to show by the reader's language, so the file says
 for every name whether it holds the town and which words find it.
 
@@ -106,7 +96,7 @@ also one zstd frame. Names, positions and services are the map's stations
 CI builds the graph per region and writes a sidecar instead (--sidecar),
 which graph_join.py merges across regions and cuts into chunks.
 
-Usage: graph.py IN-rail.osm.pbf OUT.rltg.zst OUT.rlts.zst [OUT.rltr.zst]
+Usage: graph.py IN-rail.osm.pbf OUT.rltg.zst OUT.rlts.zst
        graph.py --sidecar IN-rail.osm.pbf OUT.graph.jsonl.zst
 """
 import json
@@ -361,9 +351,9 @@ def build(lines):
 
 
 def relation_rows(g):
-    """The LINE_ROUTES relations of g: {id, route, ref, name, from, to,
-    operator, network, colour, stops (node ids of the stop positions in
-    route order)}. Every region lists a relation's members whole, so its
+    """The LINE_ROUTES relations of g, whose stop positions in route order
+    give each station its lines (station_lines): {id, route, ref, name,
+    from, to, operator, network, colour, stops}. Every region lists a relation's members whole, so its
     stops are the same in every region's copy."""
     rows = []
     for r in g.relations:
@@ -389,17 +379,6 @@ def _station_of(stops):
         for nid in nodes:
             at.setdefault(nid, []).append(sid)
     return at
-
-
-def station_calls(relation, at):
-    """The stations a relation calls at in route order, once in a row:
-    those holding its stop positions; at is _station_of the stops."""
-    seq = []
-    for nid in relation["stops"]:
-        for sid in sorted(at.get(nid, ())):
-            if not seq or seq[-1] != sid:
-                seq.append(sid)
-    return seq
 
 
 def station_lines(relations, stops):
@@ -506,7 +485,6 @@ def _track_beside(g, stations):
 
 VERSION = 6
 STATIONS_VERSION = 6
-RELATIONS_VERSION = 1
 # The relations the graph and the station file carry: services a trip may
 # follow, and the lines (infrastructure) a track sheet names.
 LINE_ROUTES = ("train", "light_rail", "railway")
@@ -887,31 +865,6 @@ def station_file(features, stops, relations=()):
     return bytes(out)
 
 
-def relation_file(features, stops, relations):
-    """The uncompressed relation file: the relations (relation_rows) with
-    the stations they call at, as the station file of the same features and
-    stops numbers them."""
-    number = {f["properties"]["osm_id"]: k for k, f in enumerate(_listed(features))}
-    at = _station_of(stops)
-    out = bytearray(b"RLTR") + struct.pack("<I", RELATIONS_VERSION)
-    _varint(out, len(relations))
-    before = 0
-    for r in sorted(relations, key=lambda r: r["id"]):
-        _varint(out, r["id"] - before)
-        before = r["id"]
-        out.append(LINE_ROUTES.index(r["route"]))
-        for k in ("ref", "name", "from", "to", "operator", "network"):
-            text = r[k].encode()[:65535]
-            _varint(out, len(text))
-            out += text
-        _varint(out, 0 if r["colour"] is None else r["colour"] + 1)
-        calls = [number[sid] for sid in station_calls(r, at) if sid in number]
-        _varint(out, len(calls))
-        for k in calls:
-            _varint(out, k)
-    return bytes(out)
-
-
 # Chunks are tiles at this zoom: about 100 km across in central Europe.
 CHUNK_ZOOM = 8
 
@@ -988,23 +941,20 @@ def sidecar(g, table, path):
 def main():
     args = sys.argv[1:]
     side = args[:1] == ["--sidecar"]
-    if len(args) not in (3, 4) or side and len(args) != 3:
-        sys.exit("usage: graph.py IN-rail.osm.pbf OUT.rltg.zst OUT.rlts.zst [OUT.rltr.zst]\n"
+    if len(args) != 3:
+        sys.exit("usage: graph.py IN-rail.osm.pbf OUT.rltg.zst OUT.rlts.zst\n"
                  "       graph.py --sidecar IN-rail.osm.pbf OUT.graph.jsonl.zst")
     g = build(read_opl(args[1 if side else 0]))
     if side:
         sidecar(g, station_stops(g, args[1]), args[2])
         size = ""
     else:
-        pbf, graph_out, stations_out = args[:3]
+        pbf, graph_out, stations_out = args
         table = station_stops(g, pbf)
         raw = encode(g)
         write(raw, graph_out)
         stops = {sid: sorted(g.node_id[j] for j in js) for sid, js in table.items()}
-        features, rows = ST.features(pbf, routes.read_opl(pbf)), relation_rows(g)
-        write(station_file(features, stops, rows), stations_out)
-        if len(args) == 4:
-            write(relation_file(features, stops, rows), args[3])
+        write(station_file(ST.features(pbf, routes.read_opl(pbf)), stops, relation_rows(g)), stations_out)
         size = f"; {len(raw) / 1e6:.1f} MB raw"
     print(f"{len(g.node_id)} junctions, {g.edge_count} edges, {len(g.version)} ways{size}")
 

@@ -17,8 +17,6 @@ PMTiles header, so the client loads only the archives overlapping the viewport.
                  chunk archive (graph_join.py), when the build produced one;
                  not a map archive, so not under archives
   trackStations  {url, bytes} of the stations file the app searches by name
-  trackRelations {url, bytes} of the relations file (services and lines with
-                 the stations they call at), numbering the stations file's
   builds         recent dated tags, oldest->newest, that carry a per-tile change
                  list. A client soft-purge walks the tags after its last-seen one
                  and applies each <region>-<tag>.changed instead of wiping the
@@ -31,8 +29,7 @@ and the client derives that URL from baseUrl, the builds tags, and each region.
 Usage: manifest.py --archives-dir DIR --tag TAG --base-url URL \
                    --build-id ISO --osm-timestamp ISO \
                    [--recent-builds t1,t2,...] [--night-trains FILE] \
-                   [--track-graph FILE --track-stations FILE [--track-relations FILE]]
-                   --out manifest.json
+                   [--track-graph FILE --track-stations FILE] --out manifest.json
 """
 import argparse
 import glob
@@ -83,7 +80,6 @@ def main():
     ap.add_argument("--night-trains")
     ap.add_argument("--track-graph")
     ap.add_argument("--track-stations")
-    ap.add_argument("--track-relations")
     ap.add_argument("--out", default="manifest.json")
     args = ap.parse_args()
 
@@ -130,10 +126,6 @@ def main():
         fn = os.path.basename(args.track_stations)
         manifest["trackStations"] = {"url": f"{args.base_url}/{args.tag}/{fn}",
                                      "bytes": os.path.getsize(args.track_stations)}
-        if args.track_relations and os.path.exists(args.track_relations):
-            fn = os.path.basename(args.track_relations)
-            manifest["trackRelations"] = {"url": f"{args.base_url}/{args.tag}/{fn}",
-                                          "bytes": os.path.getsize(args.track_relations)}
     with open(args.out, "w") as f:
         json.dump(manifest, f, indent=2)
     print(json.dumps(manifest, indent=2), file=sys.stderr)
