@@ -67,8 +67,18 @@ half-finished build still points at. Smoke runs skip it. It never touches the
 `night-trains-<tag>.json.gz`. A failed delete logs a warning and the next build
 retries it.
 
+## The last good build store
+
+The `last-good` release is build-internal and outside the prune, since its tag
+is not a date. It holds one bundle per region, `<region>.<run id>-<attempt>.tar.zst`,
+with the region's last good build from `main`. A save only uploads, and a sweep
+at the start of the join deletes all but each region's newest bundle, so the
+release holds about one bundle per region and a failed upload never removes the
+previous one. See [Carry-forward](README.md#carry-forward).
+
 ## Result
 
 Storage drops from unbounded to 14 days of archives, at ~3.6 GB per build before
 the stations layer, and ~180 MB of hashes, plus a slowly growing pile of change
 lists. At two to three builds a week that is roughly 15 to 25 GB of archives.
+The `last-good` store adds one region set, about 3.3 GB.

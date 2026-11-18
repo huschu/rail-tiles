@@ -209,8 +209,9 @@ rebuilds only that one.
 
 Weekly cron plus manual dispatch. 242 regions worldwide (country level; the US as
 states; Canada and Russia whole; cross-border aggregates excluded). Per region:
-fetch → filter → tile → verify, skipping regions whose extract is unchanged
-(md5-keyed cache). Then `join_planet.py` tile-joins per continent into
+fetch → filter → tile → verify. Every region rebuilds each week: Geofabrik
+regenerates its extracts daily, so the md5-keyed cache only hits on a second
+run the same day. Then `join_planet.py` tile-joins per continent into
 `<continent>-<date>.pmtiles`, all published to a dated Release, and the manifest
 at `latest` lists them with bounds. A smoke run (dispatch with a `regions` list)
 builds an artifact and does not publish. A test run (dispatch with a
@@ -218,6 +219,26 @@ builds an artifact and does not publish. A test run (dispatch with a
 tag, with its own `manifest.json`; it leaves `latest` and the prune alone, and
 its release stays until deleted by hand. The build tolerates a region failing:
 `fail-fast: false` and the join runs on partial success.
+
+### Carry-forward
+
+A region with no fresh build, because its download, build or gates failed,
+publishes its last good build instead, so a dropped region is stale rather than
+blank. The region job looks for one in this order:
+
+1. The newest older build in the Actions cache (the `tiles-<region>-` restore
+   key). GitHub evicts entries once the repository passes 10 GB and expires
+   those unread for 7 days, so this one can be gone.
+2. The region's bundle on the `last-good` release (`scripts/region_store.sh`).
+   Every fresh build on `main`, other than a `test_tag` run, saves one, and
+   release assets are never evicted. A region without railways saves a
+   `<region>.norail` marker, so it can fall back to "no railways" too.
+
+A restored build warns when older code built it, since it may lack newer
+attributes. The coverage gate fails the run only when more than 5 regions have
+neither a fresh build nor a fallback. Branch runs read `main`'s cache entries
+and the store but save no tilesets or graphs to either, so test builds neither
+crowd `main`'s tilesets out of the cache nor replace its fallback.
 
 ## Incremental updates
 

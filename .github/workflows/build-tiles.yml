@@ -1,10 +1,10 @@
 name: build-tiles
 
-# Weekly full rebuild. Each continent archive is re-joined and republished whole
-# (unchanged regions restore from the md5 cache, so it is mostly a re-join, not a
-# recompute). Archives are never patched in place; clients update incrementally
-# from the per-tile change lists the join step publishes. Manual dispatch for
-# on-demand runs.
+# Weekly full rebuild. Every region rebuilds: Geofabrik regenerates its extracts
+# daily, so the md5 cache key only hits on a second run the same day. Each
+# continent archive is re-joined and republished whole. Archives are never
+# patched in place; clients update incrementally from the per-tile change lists
+# the join step publishes. Manual dispatch for on-demand runs.
 on:
   schedule:
     # Mondays 04:17 UTC: after Geofabrik's nightly extract refresh (the last
@@ -61,6 +61,18 @@ jobs:
           fi
           echo "tag=${TEST_TAG:-$(date -u +%Y%m%d)}" >> "$GITHUB_OUTPUT"
           echo "build_id=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      # Created here once, so the region jobs that save to it do not race to.
+      - name: Create the last good build store
+        if: github.ref == 'refs/heads/main' && github.event.inputs.test_tag == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # A GitHub error here must not stop the build; saves then just warn.
+          gh release view last-good >/dev/null 2>&1 \
+            || gh release create last-good --prerelease --title "last-good" \
+                 --notes "Build-internal: the last good build of each region, which a region job falls back to (scripts/region_store.sh). Not for clients." \
+            || echo "::warning::could not create the last-good release; this run saves no last good builds"
 
   build:
     needs: prepare
@@ -164,6 +176,8 @@ jobs:
         if: steps.tiles.outputs.cache-hit != 'true'
         env:
           NAME: ${{ matrix.region.name }}
+          GH_TOKEN: ${{ github.token }}
+          CODE: tiles=${{ steps.code.outputs.tiles }} graph=${{ steps.code.outputs.graph }}
         run: |
           set -uo pipefail
           NEW="work/$NAME.new.pmtiles"
@@ -178,6 +192,9 @@ jobs:
                 rm -f "work/$NAME.pmtiles" "work/$NAME.night.json" "$NIGHT" \
                       "work/$NAME.stations.geojsonseq" "$STATIONS" \
                       "work/$NAME.border.json" "$BORDER"   # railless region: legitimately empty
+                # Kept as a result of its own, so a failed download can fall back to it.
+                : > "work/$NAME.norail"
+                echo "norail=true" >> "$GITHUB_OUTPUT"
                 echo "$NAME: no railways"; exit 0
               fi
               if python3 pipeline/verify.py "$NEW"; then
@@ -197,8 +214,15 @@ jobs:
           else
             echo "::warning::$NAME: download failed on both mirrors"
           fi
+          # The Actions cache loses entries to eviction and expiry; the store does not.
+          if [ ! -f "work/$NAME.pmtiles" ]; then
+            bash scripts/region_store.sh restore "$NAME" work || true
+          fi
           if [ -f "work/$NAME.pmtiles" ]; then
             echo "::warning::$NAME: carrying forward last good tileset"; exit 0
+          fi
+          if [ -f "work/$NAME.norail" ]; then
+            echo "::warning::$NAME: carrying forward its last good build, which has no railways"; exit 0
           fi
           echo "::error::$NAME: no fresh build and no prior tileset"; exit 1
 
@@ -210,6 +234,8 @@ jobs:
         if: steps.graph.outputs.cache-hit != 'true'
         env:
           NAME: ${{ matrix.region.name }}
+          GH_TOKEN: ${{ github.token }}
+          CODE: tiles=${{ steps.code.outputs.tiles }} graph=${{ steps.code.outputs.graph }}
         run: |
           set -uo pipefail
           NEW="work/$NAME.graph.new.jsonl.zst"
@@ -219,21 +245,36 @@ jobs:
             exit 0
           fi
           rm -f "$NEW"
+          if [ ! -f "work/$NAME.graph.jsonl.zst" ]; then
+            bash scripts/region_store.sh restore "$NAME" work "$NAME.graph.jsonl.zst" || true
+          fi
           if [ -f "work/$NAME.graph.jsonl.zst" ]; then
             echo "::warning::$NAME: track graph failed; carrying forward the last good one"
           else
             echo "::warning::$NAME: track graph failed and none to carry forward"
           fi
 
+      # The store keeps what main builds, so it matches the live map. Branch and
+      # test runs only read it.
+      - name: Save last good build
+        if: github.ref == 'refs/heads/main' && github.event.inputs.test_tag == '' && (steps.build.outputs.built == 'true' || steps.build.outputs.norail == 'true')
+        env:
+          NAME: ${{ matrix.region.name }}
+          GH_TOKEN: ${{ github.token }}
+          CODE: tiles=${{ steps.code.outputs.tiles }} graph=${{ steps.code.outputs.graph }}
+        run: bash scripts/region_store.sh save "$NAME" work
+
+      # Branch runs read main's entries but save no tilesets or graphs, which
+      # crowded main's out of the 10 GB cache on 2026-11-16.
       - name: Save region track graph
-        if: steps.graph_build.outputs.built == 'true'
+        if: github.ref == 'refs/heads/main' && steps.graph_build.outputs.built == 'true'
         uses: actions/cache/save@v6
         with:
           path: work/${{ matrix.region.name }}.graph.jsonl.zst
           key: ${{ steps.graph.outputs.cache-primary-key }}
 
       - name: Save region tileset            # only a fresh build, under the exact key
-        if: steps.build.outputs.built == 'true'
+        if: github.ref == 'refs/heads/main' && steps.build.outputs.built == 'true'
         uses: actions/cache/save@v6
         with:
           path: |
@@ -257,6 +298,7 @@ jobs:
             work/${{ matrix.region.name }}.border.json
             work/${{ matrix.region.name }}.timestamp
             work/${{ matrix.region.name }}.graph.jsonl.zst
+            work/${{ matrix.region.name }}.norail
           if-no-files-found: ignore
           retention-days: 3
 
@@ -271,6 +313,14 @@ jobs:
       ODBL_NOTE: "Data © OpenStreetMap contributors, available under the Open Database License (ODbL): https://www.openstreetmap.org/copyright"
     steps:
       - uses: actions/checkout@v5
+
+      # Each region's save leaves its older bundle for this step, so the region
+      # jobs list and delete nothing. Before the coverage gate, which can fail.
+      - name: Sweep older last good builds
+        if: github.ref == 'refs/heads/main' && github.event.inputs.test_tag == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/region_store.sh sweep
 
       # The regions' archives and graphs, the continent archives and the
       # track graph's chunk files all sit on this disk at once.
